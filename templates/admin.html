@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>即時問答 - 管理介面</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { color: #333; margin-bottom: 30px; }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 15px 30px;
+            cursor: pointer;
+            background: #e9e9e9;
+            border: none;
+            font-size: 16px;
+            font-weight: bold;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .tab-content.active { display: block; }
+        
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: bold; }
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        textarea { min-height: 100px; resize: vertical; }
+        button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { opacity: 0.9; }
+        button.danger { background: #e74c3c; }
+        button.success { background: #27ae60; }
+        
+        .question-list, .activity-list {
+            margin-top: 20px;
+        }
+        .question-item, .activity-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .question-info, .activity-info {
+            flex: 1;
+        }
+        .question-title { font-weight: bold; color: #333; margin-bottom: 5px; }
+        .question-meta { color: #666; font-size: 14px; }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .close-btn {
+            float: right;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+        .answers-list {
+            margin-top: 20px;
+        }
+        .answer-item {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border-left: 3px solid #27ae60;
+        }
+        .answer-user {
+            font-weight: bold;
+            color: #333;
+        }
+        .answer-text {
+            margin-top: 5px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎛️ 管理介面</h1>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('questions')">題目管理</button>
+            <button class="tab" onclick="switchTab('activities')">活動管理</button>
+        </div>
+        
+        <!-- 題目管理 -->
+        <div id="questionsTab" class="tab-content active">
+            <h2>新增題目</h2>
+            <form id="questionForm" onsubmit="createQuestion(event)">
+                <div class="form-group">
+                    <label>題型</label>
+                    <select id="questionType" required>
+                        <option value="short_answer">簡答題</option>
+                        <option value="multiple_choice">選擇題</option>
+                        <option value="multiple_select">多選題</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>題目內容</label>
+                    <textarea id="questionContent" required></textarea>
+                </div>
+                <div class="form-group" id="optionsGroup" style="display:none;">
+                    <label>選項（每行一個）</label>
+                    <textarea id="questionOptions"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>回答時間限制（秒）</label>
+                    <input type="number" id="timeLimit" value="60" min="1">
+                </div>
+                <div class="form-group">
+                    <label>回答次數限制（選填，留空表示無限制）</label>
+                    <input type="number" id="answerLimit" placeholder="例如：3（每位使用者最多可回答3次）" min="1">
+                    <small style="color: #999; display: block; margin-top: 5px;">留空表示每位使用者可無限制回答</small>
+                </div>
+                <button type="submit">新增題目</button>
+            </form>
+            
+            <div class="question-list" id="questionList"></div>
+        </div>
+        
+        <!-- 活動管理 -->
+        <div id="activitiesTab" class="tab-content">
+            <h2>建立新活動</h2>
+            <div class="form-group">
+                <label>活動名稱</label>
+                <input type="text" id="activityName" placeholder="請輸入活動名稱">
+            </div>
+            <div class="form-group">
+                <label>小組設定（選填）</label>
+                <input type="text" id="groupsText" placeholder="例如：第1組,第2組,第3組 或留空表示不分組">
+                <small style="color: #999; display: block; margin-top: 5px;">請用逗號分隔多個小組名稱</small>
+            </div>
+            <button onclick="createActivity()">建立活動</button>
+            
+            <div class="activity-list" id="activityList"></div>
+        </div>
+    </div>
+    
+    <!-- 活動詳情模態框 -->
+    <div class="modal" id="activityModal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeActivityModal()">&times;</span>
+            <h2 id="modalActivityName"></h2>
+            <div id="activityDetails"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        
+        // 題型變更時顯示/隱藏選項輸入
+        document.getElementById('questionType').addEventListener('change', function() {
+            const optionsGroup = document.getElementById('optionsGroup');
+            if (this.value === 'multiple_choice' || this.value === 'multiple_select') {
+                optionsGroup.style.display = 'block';
+            } else {
+                optionsGroup.style.display = 'none';
+            }
+        });
+        
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(tab + 'Tab').classList.add('active');
+            
+            if (tab === 'questions') {
+                loadQuestions();
+            } else {
+                loadActivities();
+            }
+        }
+        
+        function createQuestion(e) {
+            e.preventDefault();
+            const type = document.getElementById('questionType').value;
+            const content = document.getElementById('questionContent').value;
+            const timeLimit = parseInt(document.getElementById('timeLimit').value) || 60;
+            const answerLimit = document.getElementById('answerLimit').value;
+            let options = [];
+            
+            if (type === 'multiple_choice' || type === 'multiple_select') {
+                const optionsText = document.getElementById('questionOptions').value;
+                options = optionsText.split('\n').filter(o => o.trim());
+            }
+            
+            const payload = {
+                type: type,
+                content: content,
+                options: options,
+                time_limit: timeLimit
+            };
+            
+            if (answerLimit && answerLimit.trim() !== '') {
+                payload.answer_limit = parseInt(answerLimit);
+            }
+            
+            fetch('/api/questions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('questionForm').reset();
+                document.getElementById('optionsGroup').style.display = 'none';
+                loadQuestions();
+            })
+            .catch(err => console.error(err));
+        }
+        
+        function loadQuestions() {
+            fetch('/api/questions')
+                .then(res => res.json())
+                .then(questions => {
+                    const list = document.getElementById('questionList');
+                    list.innerHTML = '';
+                    questions.forEach(q => {
+                        const item = document.createElement('div');
+                        item.className = 'question-item';
+                        item.innerHTML = `
+                            <div class="question-info">
+                                <div class="question-title">${q.content}</div>
+                                <div class="question-meta">
+                                    類型: ${getQuestionTypeName(q.type)} | 
+                                    時間限制: ${q.time_limit || 60}秒
+                                    ${q.answer_limit ? `| 回答次數限制: ${q.answer_limit}次` : '| 回答次數: 無限制'}
+                                </div>
+                            </div>
+                            <button class="danger" onclick="deleteQuestion(${q.id})">刪除</button>
+                        `;
+                        list.appendChild(item);
+                    });
+                });
+        }
+        
+        function getQuestionTypeName(type) {
+            const names = {
+                'short_answer': '簡答題',
+                'multiple_choice': '選擇題',
+                'multiple_select': '多選題'
+            };
+            return names[type] || type;
+        }
+        
+        function deleteQuestion(id) {
+            if (!confirm('確定要刪除此題目嗎？')) return;
+            fetch(`/api/questions/${id}`, { method: 'DELETE' })
+                .then(() => loadQuestions());
+        }
+        
+        function createActivity() {
+            const name = document.getElementById('activityName').value;
+            if (!name) {
+                alert('請輸入活動名稱');
+                return;
+            }
+            
+            const groupsText = document.getElementById('groupsText').value.trim();
+            let groups = null;
+            if (groupsText) {
+                groups = groupsText.split(',').map(g => g.trim()).filter(g => g !== '');
+            }
+            
+            fetch('/api/activities', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    name: name,
+                    groups: groups
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('activityName').value = '';
+                document.getElementById('groupsText').value = '';
+                loadActivities();
+            })
+            .catch(err => console.error(err));
+        }
+        
+        function loadActivities() {
+            fetch('/api/activities')
+                .then(res => res.json())
+                .then(activities => {
+                    const list = document.getElementById('activityList');
+                    list.innerHTML = '';
+                    activities.forEach(a => {
+                        const item = document.createElement('div');
+                        item.className = 'activity-item';
+                        item.innerHTML = `
+                            <div class="activity-info">
+                                <div class="question-title">${a.name}</div>
+                                <div class="question-meta">狀態: ${getStatusName(a.status)}</div>
+                            </div>
+                            <div>
+                                <button onclick="window.location.href='/admin/activity/${a.id}'">管理</button>
+                            </div>
+                        `;
+                        list.appendChild(item);
+                    });
+                });
+        }
+        
+        function getStatusName(status) {
+            const names = {
+                'preparing': '準備中',
+                'active': '進行中',
+                'ended': '已結束'
+            };
+            return names[status] || status;
+        }
+        
+        function openActivityModal(activityId) {
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    document.getElementById('modalActivityName').textContent = activity.name;
+                    const details = document.getElementById('activityDetails');
+                    
+                    let html = `
+                        <div style="margin-bottom: 30px;">
+                            <h3>活動設定</h3>
+                            <div class="form-group">
+                                <label>小組數量</label>
+                                <input type="number" id="modalGroupsCount" value="${activity.groups_count || ''}" placeholder="不填表示不分組" min="0" style="width: 100%; padding: 8px;">
+                            </div>
+                            <button onclick="updateGroupsCount(${activityId})" style="margin-top: 10px;">更新小組數量</button>
+                        </div>
+                        
+                        <div style="margin-bottom: 30px; padding: 20px; background: #f0f0f0; border-radius: 8px;">
+                            <h3>📺 投影畫面控制</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 15px;">
+                                <button class="success" onclick="showDisplay('qrcode', ${activityId})" style="padding: 15px;">
+                                    📱 顯示 QR Code
+                                </button>
+                                <button class="success" onclick="showDisplay('stats', ${activityId})" style="padding: 15px;">
+                                    📊 顯示統計數據
+                                </button>
+                                <button class="success" onclick="showDisplay('question', ${activityId})" style="padding: 15px;">
+                                    ❓ 顯示題目
+                                </button>
+                                <button onclick="showDisplay('none', ${activityId})" style="padding: 15px; background: #95a5a6;">
+                                    ⬛ 關閉顯示
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-bottom: 30px;">
+                            <h3>搶答控制</h3>
+                            <div class="form-group">
+                                <label>選擇題目</label>
+                                <select id="questionSelect" style="width: 100%; padding: 8px; margin: 10px 0;">
+                                    <option value="">請選擇題目</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <button class="success" onclick="startActivity(${activityId})">開始搶答</button>
+                                <button class="danger" onclick="endActivity(${activityId})">結束搶答</button>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h3>回答紀錄</h3>
+                            <div class="answers-list" id="answersList"></div>
+                        </div>
+                    `;
+                    
+                    details.innerHTML = html;
+                    
+                    // 載入題目列表
+                    fetch('/api/questions')
+                        .then(res => res.json())
+                        .then(questions => {
+                            const select = document.getElementById('questionSelect');
+                            questions.forEach(q => {
+                                const option = document.createElement('option');
+                                option.value = q.id;
+                                option.textContent = q.content.substring(0, 50);
+                                select.appendChild(option);
+                            });
+                            if (activity.current_question_id) {
+                                select.value = activity.current_question_id;
+                            }
+                            select.addEventListener('change', function() {
+                                updateActivityQuestion(activityId, this.value);
+                            });
+                        });
+                    
+                    // 顯示回答
+                    const answersList = document.getElementById('answersList');
+                    if (activity.answers && activity.answers.length > 0) {
+                        activity.answers.forEach(answer => {
+                            const item = document.createElement('div');
+                            item.className = 'answer-item';
+                            item.innerHTML = `
+                                <div class="answer-user">${answer.user_name} (${answer.group_name || '無'})</div>
+                                <div class="answer-text">${answer.answer_text}</div>
+                            `;
+                            answersList.appendChild(item);
+                        });
+                    } else {
+                        answersList.innerHTML = '<p>尚無回答</p>';
+                    }
+                    
+                    document.getElementById('modalActivityName').dataset.activityId = activityId;
+                    document.getElementById('activityModal').classList.add('active');
+                });
+        }
+        
+        function closeActivityModal() {
+            document.getElementById('activityModal').classList.remove('active');
+        }
+        
+        function updateActivityQuestion(activityId, questionId) {
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ current_question_id: parseInt(questionId) || null })
+            });
+        }
+        
+        function updateGroupsCount(activityId) {
+            const groupsCount = document.getElementById('modalGroupsCount').value;
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    groups_count: groupsCount ? parseInt(groupsCount) : null
+                })
+            })
+            .then(() => {
+                alert('小組數量已更新');
+                openActivityModal(activityId);
+            });
+        }
+        
+        function showDisplay(mode, activityId) {
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ display_mode: mode })
+            })
+            .then(() => {
+                const modeNames = {
+                    'qrcode': 'QR Code',
+                    'stats': '統計數據',
+                    'question': '題目',
+                    'none': '關閉'
+                };
+                alert(`投影畫面已切換為：${modeNames[mode] || mode}`);
+            });
+        }
+        
+        function startActivity(activityId) {
+            const questionId = document.getElementById('questionSelect').value;
+            if (!questionId) {
+                alert('請先選擇題目');
+                return;
+            }
+            
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: 'active',
+                    current_question_id: parseInt(questionId),
+                    display_mode: 'question'
+                })
+            })
+            .then(() => {
+                alert('搶答已開始！');
+                openActivityModal(activityId);
+            });
+        }
+        
+        function endActivity(activityId) {
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'ended' })
+            })
+            .then(() => {
+                alert('搶答已結束');
+                openActivityModal(activityId);
+            });
+        }
+        
+        // 監聽回答提交
+        socket.on('answer_submitted', (data) => {
+            const modal = document.getElementById('activityModal');
+            if (modal.classList.contains('active')) {
+                // 重新載入活動詳情
+                const activityIdStr = document.getElementById('modalActivityName').dataset.activityId;
+                if (activityIdStr && parseInt(activityIdStr) === data.activity_id) {
+                    openActivityModal(parseInt(activityIdStr));
+                }
+            }
+        });
+        
+        // 載入初始資料
+        loadQuestions();
+    </script>
+</body>
+</html>
+

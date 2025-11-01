@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>即時問答 - 投影畫面</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            background: #1a1a2e;
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+            transition: background-color 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        body.flash-red {
+            animation: flashRed 1s ease-in-out;
+        }
+        @keyframes flashRed {
+            0% { background-color: #1a1a2e; }
+            50% { background-color: var(--flash-color); }
+            100% { background-color: #1a1a2e; }
+        }
+        .container {
+            max-width: 1400px;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .display-area {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 40px;
+            width: 100%;
+            max-height: 96vh;
+            min-height: 60vh;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .chart-container {
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
+            position: relative;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .chart-wrapper {
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 10px;
+            margin-top: 20px;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .chart-title {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #fff;
+            text-align: center;
+            font-weight: bold;
+        }
+        .question-info {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-align: center;
+            padding: 15px;
+            background: rgba(102, 126, 234, 0.2);
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .chart-canvas-wrapper {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+        }
+        .chart-canvas-wrapper canvas {
+            max-height: 100% !important;
+            width: 100% !important;
+        }
+        
+        .qrcode-section {
+            text-align: center;
+        }
+        .qrcode-section h2 {
+            font-size: 36px;
+            margin-bottom: 30px;
+        }
+        .qrcode-section img {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            max-width: 400px;
+        }
+        .qrcode-section .url {
+            font-size: 24px;
+            margin-top: 20px;
+            color: #fff;
+            word-break: break-all;
+        }
+        
+        .stats-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            text-align: center;
+        }
+        .stats-section h2 {
+            font-size: 36px;
+            margin-bottom: 30px;
+            text-align: center;
+            grid-column: 1 / -1;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 10px;
+        }
+        .stat-number {
+            font-size: 64px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        .stat-label {
+            font-size: 20px;
+            color: #ccc;
+        }
+        
+        .question-section {
+            text-align: center;
+        }
+        .question-box {
+            background: rgba(255,255,255,0.1);
+            padding: 40px;
+            border-radius: 15px;
+            margin: 30px 0;
+            border: 3px solid #667eea;
+        }
+        .question-box h2 {
+            font-size: 36px;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        .question-content {
+            font-size: 32px;
+            line-height: 1.6;
+            margin: 20px 0;
+            min-height: 100px;
+        }
+        .timer-display {
+            font-size: 120px;
+            font-weight: bold;
+            color: #fff;
+            margin: 40px 0;
+            text-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+            min-height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .timer-display.warning {
+            color: #f39c12;
+            animation: pulse 1s infinite;
+        }
+        .timer-display.danger {
+            color: #e74c3c;
+            animation: pulse 0.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .hidden { 
+            display: none !important; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="display-area">
+            <!-- QR Code 顯示 -->
+            <div id="qrcodeDisplay" class="hidden">
+                <div class="qrcode-section">
+                    <h2>掃描 QR Code 加入活動</h2>
+                    <img id="qrcodeImage" alt="QR Code">
+                    <div class="url" id="activityUrl"></div>
+                </div>
+            </div>
+            
+            <!-- 統計顯示 - 橫式長條圖（使用者） -->
+            <div id="statsDisplayHorizontal" class="hidden">
+                <div class="chart-container">
+                    <div class="chart-wrapper">
+                        <div class="chart-title">答題統計 - 個人</div>
+                        <div id="horizontalQuestionInfo" class="question-info">載入題目資訊...</div>
+                        <div class="chart-canvas-wrapper">
+                            <canvas id="horizontalChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 統計顯示 - 直式長條圖（小組） -->
+            <div id="statsDisplayVertical" class="hidden">
+                <div class="chart-container">
+                    <div class="chart-wrapper">
+                        <div class="chart-title">答題統計 - 小組平均</div>
+                        <div id="verticalQuestionInfo" class="question-info">載入題目資訊...</div>
+                        <div class="chart-canvas-wrapper">
+                            <canvas id="verticalChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 題目顯示 -->
+            <div id="questionDisplay" class="hidden">
+                <div class="question-section">
+                    <div class="question-box">
+                        <h2>當前題目</h2>
+                        <div class="question-content" id="questionContent">等待題目...</div>
+                    </div>
+                    <div class="timer-display" id="timerDisplay">--:--</div>
+                </div>
+            </div>
+            
+            <!-- 回答顯示 -->
+            <div id="answerDisplay" class="hidden">
+                <div class="question-section">
+                    <div class="question-box">
+                        <h2 id="answerQuestionTitle">回答內容</h2>
+                        <div class="question-content" id="answerQuestionContent">等待回答...</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; margin: 30px 0;">
+                        <div style="font-size: 24px; margin-bottom: 20px; color: #667eea;">
+                            <strong id="answerUserName">用戶名稱</strong>
+                            <span id="answerGroupName" style="font-size: 18px; color: #ccc; margin-left: 10px;"></span>
+                        </div>
+                        <div style="font-size: 32px; line-height: 1.8; color: #fff; min-height: 100px;" id="answerContent">
+                            等待回答內容...
+                        </div>
+                        <div style="font-size: 16px; color: #ccc; margin-top: 20px; text-align: right;" id="answerTime">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentActivityId = null;
+        let currentQuestion = null;
+        let timeRemaining = 0;
+        let statsInterval = null;
+        let currentDisplayMode = 'none';
+        let horizontalChart = null;
+        let verticalChart = null;
+        let statsLimit = null; // 統計數據顯示筆數限制
+        
+        // 加入投影畫面頻道
+        socket.emit('join_display');
+        console.log('Display page connected to WebSocket');
+        
+        // 監聽投影畫面更新指令
+        socket.on('display_update', (data) => {
+            console.log('收到 display_update:', data);
+            if (data.activity_id) {
+                currentActivityId = data.activity_id;
+            }
+            // 保存統計數據限制筆數
+            if (data.stats_limit !== undefined) {
+                statsLimit = data.stats_limit;
+            } else if (data.display_mode !== 'stats_horizontal') {
+                // 如果不是橫式統計模式，清除限制
+                statsLimit = null;
+            }
+            if (data.display_mode) {
+                switchDisplayMode(data.display_mode, data.answer);
+            }
+        });
+        
+        // 監聽回答投影
+        socket.on('answer_display', (data) => {
+            console.log('收到 answer_display:', data);
+            if (data.activity_id === currentActivityId) {
+                showAnswer(data.answer);
+            }
+        });
+        
+        // 監聽活動狀態更新
+        socket.on('activity_updated', (data) => {
+            console.log('收到 activity_updated:', data);
+            if (data.activity_id === currentActivityId) {
+                // 如果更新了顯示模式
+                if (data.updates.display_mode) {
+                    switchDisplayMode(data.updates.display_mode);
+                }
+                // 如果狀態變為 active 且有題目，且當前模式是 question，則載入題目
+                if (data.updates.status === 'active' && data.updates.current_question_id) {
+                    if (currentDisplayMode === 'question') {
+                        loadQuestion(currentActivityId, data.updates.current_question_id);
+                    }
+                }
+                // 如果狀態變為 ended，清除顯示
+                if (data.updates.status === 'ended') {
+                    if (currentDisplayMode === 'question') {
+                        document.getElementById('timerDisplay').textContent = '00:00';
+                    }
+                }
+            }
+        });
+        
+        // 監聽計時器更新（從管理頁面同步）
+        socket.on('timer_update', (data) => {
+            console.log('收到 timer_update:', data);
+            if (data.activity_id === currentActivityId && currentDisplayMode === 'question') {
+                timeRemaining = data.time_remaining;
+                updateTimerDisplay();
+            }
+        });
+        
+        // 監聽回答提交，更新統計
+        socket.on('answer_submitted', (data) => {
+            if (data.activity_id === currentActivityId) {
+                if (currentDisplayMode === 'stats_horizontal') {
+                    updateStatsHorizontal();
+                } else if (currentDisplayMode === 'stats_vertical') {
+                    updateStatsVertical();
+                }
+            }
+        });
+        
+        // 監聽使用者加入，更新統計
+        socket.on('user_joined', (data) => {
+            if (data.activity_id === currentActivityId) {
+                if (currentDisplayMode === 'stats_horizontal') {
+                    updateStatsHorizontal();
+                } else if (currentDisplayMode === 'stats_vertical') {
+                    updateStatsVertical();
+                }
+            }
+        });
+        
+        // 切換顯示模式
+        function switchDisplayMode(mode, answerData = null) {
+            console.log('切換顯示模式:', mode);
+            
+            // 隱藏所有顯示區域
+            document.getElementById('qrcodeDisplay').classList.add('hidden');
+            document.getElementById('statsDisplayHorizontal').classList.add('hidden');
+            document.getElementById('statsDisplayVertical').classList.add('hidden');
+            document.getElementById('questionDisplay').classList.add('hidden');
+            document.getElementById('answerDisplay').classList.add('hidden');
+            
+            // 清除定時器（已移除定時更新，改用 WebSocket 事件驅動）
+            if (statsInterval) {
+                clearInterval(statsInterval);
+                statsInterval = null;
+            }
+            
+            // 儲存當前模式
+            currentDisplayMode = mode;
+            
+            // 根據模式顯示對應內容
+            if (mode === 'qrcode' && currentActivityId) {
+                showQRCode();
+            } else if (mode === 'stats_horizontal' && currentActivityId) {
+                showStatsHorizontal();
+            } else if (mode === 'stats_vertical' && currentActivityId) {
+                showStatsVertical();
+            } else if (mode === 'question' && currentActivityId) {
+                showQuestion();
+            } else if (mode === 'answer') {
+                if (answerData) {
+                    showAnswer(answerData);
+                } else {
+                    // 如果沒有數據，嘗試從 WebSocket 等待
+                    console.log('等待回答數據...');
+                }
+            } else if (mode === 'none') {
+                // 已隱藏所有區域
+            }
+        }
+        
+        // 顯示回答
+        function showAnswer(answer) {
+            if (!answer) return;
+            
+            // 顯示回答顯示區域
+            document.getElementById('answerDisplay').classList.remove('hidden');
+            
+            // 設置題目內容
+            if (answer.question_content) {
+                document.getElementById('answerQuestionTitle').textContent = '題目';
+                document.getElementById('answerQuestionContent').textContent = answer.question_content;
+            } else {
+                document.getElementById('answerQuestionTitle').textContent = '回答內容';
+                document.getElementById('answerQuestionContent').textContent = '';
+            }
+            
+            // 設置用戶名稱
+            document.getElementById('answerUserName').textContent = answer.user_name || '未知用戶';
+            
+            // 設置小組名稱
+            const groupNameEl = document.getElementById('answerGroupName');
+            if (answer.group_name) {
+                groupNameEl.textContent = `(${answer.group_name})`;
+                groupNameEl.style.display = 'inline';
+            } else {
+                groupNameEl.textContent = '';
+                groupNameEl.style.display = 'none';
+            }
+            
+            // 設置回答內容
+            document.getElementById('answerContent').textContent = answer.answer_text || '無回答內容';
+            
+            // 設置提交時間
+            const timeEl = document.getElementById('answerTime');
+            if (answer.submitted_at) {
+                timeEl.textContent = `提交時間: ${new Date(answer.submitted_at).toLocaleString('zh-TW')}`;
+            } else {
+                timeEl.textContent = '';
+            }
+            
+            console.log('回答已顯示:', answer);
+        }
+        
+        // 顯示 QR Code
+        function showQRCode() {
+            if (!currentActivityId) return;
+            
+            fetch(`/api/activities/${currentActivityId}/qrcode`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('qrcodeImage').src = data.qrcode;
+                    document.getElementById('activityUrl').textContent = data.url;
+                    document.getElementById('qrcodeDisplay').classList.remove('hidden');
+                    console.log('QR Code 已顯示');
+                })
+                .catch(err => {
+                    console.error('載入 QR Code 失敗:', err);
+                });
+        }
+        
+        // 更新統計數據（橫式長條圖）
+        function updateStatsHorizontal() {
+            if (!currentActivityId) return;
+            
+            fetch(`/api/activities/${currentActivityId}/stats`)
+                .then(res => res.json())
+                .then(stats => {
+                    if (!stats.current_question_id) {
+                        document.getElementById('horizontalQuestionInfo').textContent = '請先選擇題目';
+                        return;
+                    }
+                    
+                    // 載入題目資訊
+                    fetch('/api/questions')
+                        .then(res => res.json())
+                        .then(questions => {
+                            const question = questions.find(q => q.id === stats.current_question_id);
+                            if (question) {
+                                document.getElementById('horizontalQuestionInfo').textContent = 
+                                    `題目：${question.content}`;
+                            } else {
+                                document.getElementById('horizontalQuestionInfo').textContent = 
+                                    `題目 ID：${stats.current_question_id}`;
+                            }
+                        })
+                        .catch(err => {
+                            document.getElementById('horizontalQuestionInfo').textContent = 
+                                `題目 ID：${stats.current_question_id}`;
+                        });
+                    
+                    let userStats = stats.user_stats || [];
+                    
+                    // 如果設置了限制筆數，只顯示前 N 筆
+                    if (statsLimit !== null && statsLimit > 0 && userStats.length > statsLimit) {
+                        userStats = userStats.slice(0, statsLimit);
+                    }
+                    
+                    const labels = userStats.map(u => {
+                        const groupInfo = u.group_name ? ` (${u.group_name})` : '';
+                        return u.name + groupInfo;
+                    });
+                    const data = userStats.map(u => u.answer_count || 0);
+                    
+                    // 銷毀舊圖表
+                    if (horizontalChart) {
+                        horizontalChart.destroy();
+                    }
+                    
+                    // 創建新圖表
+                    const ctx = document.getElementById('horizontalChart').getContext('2d');
+                    horizontalChart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: '回答數量',
+                                data: data,
+                                backgroundColor: 'rgba(102, 126, 234, 0.8)',
+                                borderColor: 'rgba(102, 126, 234, 1)',
+                                borderWidth: 2
+                            }]
+                        },
+                        plugins: [ChartDataLabels],
+                        options: {
+                            indexAxis: 'y',  // 橫式長條圖
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            layout: {
+                                padding: {
+                                    left: 20,
+                                    right: 60,
+                                    top: 10,
+                                    bottom: 10
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                                datalabels: {
+                                    anchor: 'end',
+                                    align: 'right',
+                                    color: '#fff',
+                                    font: {
+                                        size: 14,
+                                        weight: 'bold'
+                                    },
+                                    formatter: function(value) {
+                                        return value;
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        color: '#fff',
+                                        font: {
+                                            size: 16
+                                        },
+                                        stepSize: 1
+                                    },
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)'
+                                    }
+                                },
+                                y: {
+                                    ticks: {
+                                        color: '#fff',
+                                        font: {
+                                            size: 14
+                                        }
+                                    },
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                })
+                .catch(err => console.error('載入統計失敗:', err));
+        }
+        
+        // 顯示統計 - 橫式長條圖（使用者）
+        function showStatsHorizontal() {
+            if (!currentActivityId) return;
+            
+            updateStatsHorizontal();
+            document.getElementById('statsDisplayHorizontal').classList.remove('hidden');
+            
+            console.log('統計數據（橫式）已顯示');
+        }
+        
+        // 更新統計數據（直式長條圖）
+        function updateStatsVertical() {
+            if (!currentActivityId) return;
+            
+            fetch(`/api/activities/${currentActivityId}/stats`)
+                .then(res => res.json())
+                .then(stats => {
+                    if (!stats.current_question_id) {
+                        document.getElementById('verticalQuestionInfo').textContent = '請先選擇題目';
+                        return;
+                    }
+                    
+                    // 載入題目資訊
+                    fetch('/api/questions')
+                        .then(res => res.json())
+                        .then(questions => {
+                            const question = questions.find(q => q.id === stats.current_question_id);
+                            if (question) {
+                                document.getElementById('verticalQuestionInfo').textContent = 
+                                    `題目：${question.content}`;
+                            } else {
+                                document.getElementById('verticalQuestionInfo').textContent = 
+                                    `題目 ID：${stats.current_question_id}`;
+                            }
+                        })
+                        .catch(err => {
+                            document.getElementById('verticalQuestionInfo').textContent = 
+                                `題目 ID：${stats.current_question_id}`;
+                        });
+                    
+                    const groupStats = stats.group_stats || [];
+                    const labels = groupStats.map(g => g.group_name);
+                    const data = groupStats.map(g => parseFloat(g.avg_answers_per_person) || 0);
+                    
+                    // 銷毀舊圖表
+                    if (verticalChart) {
+                        verticalChart.destroy();
+                    }
+                    
+                    // 創建新圖表
+                    const ctx = document.getElementById('verticalChart').getContext('2d');
+                    verticalChart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: '平均每人答題數',
+                                data: data,
+                                backgroundColor: 'rgba(118, 75, 162, 0.8)',
+                                borderColor: 'rgba(118, 75, 162, 1)',
+                                borderWidth: 2
+                            }]
+                        },
+                        plugins: [ChartDataLabels],
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            layout: {
+                                padding: {
+                                    left: 20,
+                                    right: 20,
+                                    top: 40,
+                                    bottom: 10
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                                datalabels: {
+                                    anchor: 'end',
+                                    align: 'top',
+                                    offset: 4,
+                                    color: '#fff',
+                                    font: {
+                                        size: 14,
+                                        weight: 'bold'
+                                    },
+                                    formatter: function(value) {
+                                        return value.toFixed(1);
+                                    },
+                                    clip: false
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        color: '#fff',
+                                        font: {
+                                            size: 16
+                                        },
+                                        precision: 1
+                                    },
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)'
+                                    }
+                                },
+                                x: {
+                                    ticks: {
+                                        color: '#fff',
+                                        font: {
+                                            size: 16
+                                        }
+                                    },
+                                    grid: {
+                                        color: 'rgba(255, 255, 255, 0.1)'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                })
+                .catch(err => console.error('載入統計失敗:', err));
+        }
+        
+        // 顯示統計 - 直式長條圖（小組）
+        function showStatsVertical() {
+            if (!currentActivityId) return;
+            
+            updateStatsVertical();
+            document.getElementById('statsDisplayVertical').classList.remove('hidden');
+            
+            console.log('統計數據（直式）已顯示');
+        }
+        
+        // 顯示題目
+        function showQuestion() {
+            if (!currentActivityId) {
+                console.warn('無法顯示題目: currentActivityId 為空');
+                return;
+            }
+            
+            // 先顯示題目顯示區域
+            document.getElementById('questionDisplay').classList.remove('hidden');
+            
+            // 載入活動資訊以獲取當前題目 ID
+            fetch(`/api/activities/${currentActivityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    console.log('活動資訊已載入:', activity);
+                    if (activity.current_question_id) {
+                        loadQuestion(currentActivityId, activity.current_question_id);
+                    } else {
+                        document.getElementById('questionContent').textContent = '等待題目...';
+                        document.getElementById('timerDisplay').textContent = '--:--';
+                    }
+                })
+                .catch(err => {
+                    console.error('載入活動失敗:', err);
+                    document.getElementById('questionContent').textContent = '載入活動失敗';
+                });
+        }
+        
+        // 載入題目
+        function loadQuestion(activityId, questionId) {
+            fetch('/api/questions')
+                .then(res => res.json())
+                .then(questions => {
+                    const question = questions.find(q => q.id === questionId);
+                    if (question) {
+                        currentQuestion = question;
+                        document.getElementById('questionContent').textContent = question.content;
+                        
+                        // 初始化計時器（等待 WebSocket 同步）
+                        timeRemaining = question.time_limit || 60;
+                        updateTimerDisplay();
+                        
+                        console.log('題目已載入:', question.content.substring(0, 50));
+                    } else {
+                        console.warn('找不到題目 ID:', questionId);
+                        document.getElementById('questionContent').textContent = '題目未找到';
+                    }
+                })
+                .catch(err => {
+                    console.error('載入題目失敗:', err);
+                    document.getElementById('questionContent').textContent = '載入題目失敗';
+                });
+        }
+        
+        // 更新計時器顯示
+        function updateTimerDisplay() {
+            const timerEl = document.getElementById('timerDisplay');
+            if (!timerEl) {
+                console.error('找不到 timerDisplay 元素');
+                return;
+            }
+            
+            const minutes = Math.floor(timeRemaining / 60);
+            const seconds = timeRemaining % 60;
+            timerEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            
+            // 更新顏色樣式
+            timerEl.classList.remove('warning', 'danger');
+            if (timeRemaining <= 10) {
+                timerEl.classList.add('danger');
+            } else if (timeRemaining <= 30) {
+                timerEl.classList.add('warning');
+            }
+            
+            // 最後5秒背景閃爍效果（由淺到深）
+            const body = document.body;
+            if (timeRemaining > 0 && timeRemaining <= 5) {
+                // 計算紅色深度：5秒最淺，1秒最深
+                const intensity = 6 - timeRemaining; // 1到5
+                const redValue = Math.min(255, 100 + (intensity * 7)); // 100到250
+                const flashColor = `rgb(${redValue}, 20, 20)`;
+                
+                // 移除之前的動畫類
+                body.classList.remove('flash-red');
+                
+                // 設置閃爍顏色
+                document.documentElement.style.setProperty('--flash-color', flashColor);
+                
+                // 觸發動畫（使用 setTimeout 確保動畫可以重複觸發）
+                setTimeout(() => {
+                    body.classList.add('flash-red');
+                }, 10);
+            } else if (timeRemaining > 5 || timeRemaining <= 0) {
+                // 超過5秒或時間到時，移除閃爍效果
+                body.classList.remove('flash-red');
+            }
+            
+            // 確保題目顯示區域可見
+            const questionDisplay = document.getElementById('questionDisplay');
+            if (questionDisplay && questionDisplay.classList.contains('hidden')) {
+                questionDisplay.classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>

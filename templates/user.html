@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>即時問答 - 使用者</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            transition: background 0.3s ease;
+        }
+        body.flash-red {
+            animation: flashRed 1s ease-in-out;
+        }
+        @keyframes flashRed {
+            0% { 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            }
+            50% { 
+                background: linear-gradient(135deg, var(--flash-color-start) 0%, var(--flash-color-end) 100%);
+            }
+            100% { 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            }
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 { text-align: center; color: #333; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: bold; }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { opacity: 0.9; transform: translateY(-2px); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .waiting-screen {
+            text-align: center;
+            display: none;
+        }
+        .waiting-screen.active { display: block; }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .answer-screen {
+            display: none;
+        }
+        .answer-screen.active { display: block; }
+        
+        .ended-screen {
+            display: none;
+            text-align: center;
+        }
+        .ended-screen.active { display: block; }
+        .question-box {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            min-height: 150px;
+            resize: vertical;
+        }
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            text-align: center;
+            display: none;
+        }
+        .success-message.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 登入表單 -->
+        <div id="loginForm">
+            <h1>🎯 即時問答系統</h1>
+            <div class="form-group">
+                <label>您的名字</label>
+                <input type="text" id="userName" placeholder="請輸入您的名字" required>
+            </div>
+            <div class="form-group">
+                <label>活動 ID</label>
+                <input type="number" id="activityId" placeholder="請輸入活動 ID" readonly style="background-color: #f5f5f5; cursor: not-allowed;">
+                <div id="activityIdError" style="color: #e74c3c; font-size: 14px; margin-top: 5px; display: none;">
+                    ⚠️ 請重新掃描 QR Code
+                </div>
+            </div>
+            <div class="form-group" id="groupSelectContainer" style="display:none;">
+                <label>選擇小組 <span style="color: #e74c3c;">*</span></label>
+                <select id="groupSelect" required style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px;">
+                    <option value="">請選擇小組</option>
+                </select>
+            </div>
+            <div class="form-group" id="groupInputContainer" style="display:none;">
+                <label>所屬小組 <span style="color: #e74c3c;">*</span></label>
+                <input type="text" id="groupName" placeholder="請輸入小組名稱" required>
+            </div>
+            <button onclick="joinActivity()">進入準備</button>
+        </div>
+        
+        <!-- 等待畫面 -->
+        <div class="waiting-screen" id="waitingScreen">
+            <h1>⏳ 等待開始</h1>
+            <div class="spinner"></div>
+            <p style="margin-top: 20px; color: #666;">請等待主持人開始搶答...</p>
+        </div>
+        
+        <!-- 回答畫面 -->
+        <div class="answer-screen" id="answerScreen">
+            <div class="question-box">
+                <h2>題目</h2>
+                <p id="questionContent" style="font-size: 18px; margin-top: 10px;"></p>
+            </div>
+            <div class="form-group">
+                <label>您的回答</label>
+                <textarea id="answerText" placeholder="請在此輸入您的答案..."></textarea>
+            </div>
+            <button onclick="submitAnswer()" id="submitBtn">送出答案</button>
+            <div class="success-message" id="successMsg">答案已成功送出！</div>
+        </div>
+        
+        <!-- 搶答結束畫面 -->
+        <div class="ended-screen" id="endedScreen">
+            <h1>⏹️ 搶答已結束</h1>
+            <div style="text-align: center; margin-top: 30px;">
+                <p style="font-size: 20px; color: #666; margin-bottom: 20px;">本次搶答已結束，感謝您的參與！</p>
+                <div id="finalStatus" style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-top: 20px;">
+                    <p style="color: #555;">等待下一題...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let userId = null;
+        let activityId = null;
+        let currentQuestion = null;
+        let remainingAnswers = null; // 剩余可回答次数
+        let timeRemaining = 0; // 剩余時間（秒）
+        
+        // 從 URL 取得 activity ID
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlActivityId = urlParams.get('activity');
+        const activityIdInput = document.getElementById('activityId');
+        const activityIdError = document.getElementById('activityIdError');
+        
+        if (urlActivityId) {
+            activityIdInput.value = urlActivityId;
+            activityIdError.style.display = 'none';
+            loadActivityGroups(urlActivityId);
+        } else {
+            // 沒有活動 ID，顯示錯誤提示
+            activityIdError.style.display = 'block';
+            document.getElementById('groupSelectContainer').style.display = 'none';
+            document.getElementById('groupInputContainer').style.display = 'none';
+        }
+        
+        function loadActivityGroups(activityId) {
+            fetch(`/api/activities/${activityId}/groups`)
+                .then(res => res.json())
+                .then(data => {
+                    const selectContainer = document.getElementById('groupSelectContainer');
+                    const inputContainer = document.getElementById('groupInputContainer');
+                    
+                    if (data.groups_count && data.groups_count > 0) {
+                        // 有設定小組，顯示下拉選單
+                        selectContainer.style.display = 'block';
+                        inputContainer.style.display = 'none';
+                        
+                        const select = document.getElementById('groupSelect');
+                        select.innerHTML = '<option value="">請選擇小組</option>';
+                        data.groups.forEach(group => {
+                            const option = document.createElement('option');
+                            option.value = group;
+                            option.textContent = group;
+                            select.appendChild(option);
+                        });
+                    } else {
+                        // 沒有設定小組，顯示文字輸入框
+                        selectContainer.style.display = 'none';
+                        inputContainer.style.display = 'block';
+                    }
+                })
+                .catch(err => {
+                    // 如果活動不存在，隱藏小組選擇
+                    document.getElementById('groupSelectContainer').style.display = 'none';
+                    document.getElementById('groupInputContainer').style.display = 'none';
+                });
+        }
+        
+        function joinActivity() {
+            const name = document.getElementById('userName').value;
+            activityId = parseInt(document.getElementById('activityId').value);
+            
+            // 驗證活動 ID
+            if (!activityId) {
+                alert('請重新掃描 QR Code');
+                return;
+            }
+            
+            // 取得小組名稱
+            let groupName = '';
+            const groupSelect = document.getElementById('groupSelect');
+            const groupInput = document.getElementById('groupName');
+            
+            if (groupSelect.style.display !== 'none') {
+                if (!groupSelect.value) {
+                    alert('請選擇小組');
+                    groupSelect.focus();
+                    return;
+                }
+                groupName = groupSelect.value;
+            } else if (groupInput.style.display !== 'none') {
+                if (!groupInput.value || !groupInput.value.trim()) {
+                    alert('請輸入小組名稱');
+                    groupInput.focus();
+                    return;
+                }
+                groupName = groupInput.value.trim();
+            } else {
+                alert('請選擇或輸入小組');
+                return;
+            }
+            
+            if (!name || !name.trim()) {
+                alert('請輸入您的名字');
+                document.getElementById('userName').focus();
+                return;
+            }
+            
+            fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    activity_id: activityId,
+                    name: name,
+                    group_name: groupName || ''
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                userId = data.id;
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('waitingScreen').classList.add('active');
+                socket.emit('join_activity', { activity_id: activityId });
+            })
+            .catch(err => {
+                alert('加入活動失敗，請檢查活動 ID');
+                console.error(err);
+            });
+        }
+        
+        // 監聽活動狀態更新
+        socket.on('activity_updated', (data) => {
+            if (data.activity_id === activityId) {
+                if (data.updates.status === 'active') {
+                    // 取得當前題目
+                    fetch(`/api/activities/${activityId}`)
+                        .then(res => res.json())
+                        .then(activity => {
+                            if (activity.current_question_id) {
+                                fetch(`/api/questions`)
+                                    .then(res => res.json())
+                                    .then(questions => {
+                                        currentQuestion = questions.find(q => q.id === activity.current_question_id);
+                                        startAnswering();
+                                    });
+                            }
+                        });
+                } else if (data.updates.status === 'ended') {
+                    // 搶答結束
+                    showEndedScreen();
+                    // 清除閃爍效果
+                    document.body.classList.remove('flash-red');
+                }
+            }
+        });
+        
+        // 監聽計時器更新（從管理頁面同步）
+        socket.on('timer_update', (data) => {
+            if (data.activity_id === activityId) {
+                timeRemaining = data.time_remaining;
+                updateBackgroundFlash();
+            }
+        });
+        
+        function startAnswering() {
+            // 隱藏所有畫面
+            document.getElementById('waitingScreen').classList.remove('active');
+            document.getElementById('endedScreen').classList.remove('active');
+            // 顯示回答畫面
+            document.getElementById('answerScreen').classList.add('active');
+            document.getElementById('questionContent').textContent = currentQuestion.content;
+            document.getElementById('answerText').value = '';
+            document.getElementById('successMsg').classList.remove('show');
+            
+            // 檢查回答次數限制
+            if (currentQuestion.answer_limit) {
+                remainingAnswers = currentQuestion.answer_limit;
+                // 檢查已經回答的次數
+                fetch(`/api/answers?question_id=${currentQuestion.id}&user_id=${userId}`)
+                    .then(res => res.json())
+                    .then(answers => {
+                        const answeredCount = answers.length || 0;
+                        remainingAnswers = Math.max(0, currentQuestion.answer_limit - answeredCount);
+                        updateSubmitButton();
+                    })
+                    .catch(err => {
+                        console.error('檢查回答次數失敗:', err);
+                        remainingAnswers = currentQuestion.answer_limit;
+                        updateSubmitButton();
+                    });
+            } else {
+                remainingAnswers = null; // 無限制
+                updateSubmitButton();
+            }
+        }
+        
+        function updateSubmitButton() {
+            const btn = document.getElementById('submitBtn');
+            if (remainingAnswers === null) {
+                // 無限制
+                btn.disabled = false;
+                btn.textContent = '送出答案';
+            } else if (remainingAnswers > 0) {
+                // 還有剩余次數
+                btn.disabled = false;
+                btn.textContent = `送出答案（還可回答 ${remainingAnswers} 次）`;
+            } else {
+                // 已達限制
+                btn.disabled = true;
+                btn.textContent = '已達回答次數限制';
+            }
+        }
+        
+        function showEndedScreen() {
+            // 隱藏其他畫面
+            document.getElementById('waitingScreen').classList.remove('active');
+            document.getElementById('answerScreen').classList.remove('active');
+            
+            // 顯示結束畫面
+            document.getElementById('endedScreen').classList.add('active');
+            
+            // 檢查活動狀態，確認是否真的結束
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    const finalStatus = document.getElementById('finalStatus');
+                    if (activity.status === 'ended') {
+                        finalStatus.innerHTML = `
+                            <p style="color: #555; font-size: 18px; margin-bottom: 10px;">✓ 搶答已結束</p>
+                            <p style="color: #999; font-size: 14px;">請等待下一題或活動結束</p>
+                        `;
+                    } else if (activity.status === 'active') {
+                        // 如果活動仍然進行中，檢查是否有新題目
+                        if (activity.current_question_id) {
+                            // 有新題目，重新開始回答
+                            fetch(`/api/questions`)
+                                .then(res => res.json())
+                                .then(questions => {
+                                    currentQuestion = questions.find(q => q.id === activity.current_question_id);
+                                    startAnswering();
+                                });
+                        }
+                    }
+                });
+        }
+        
+        function submitAnswer() {
+            const answerText = document.getElementById('answerText').value;
+            if (!answerText.trim()) {
+                alert('請輸入答案');
+                return;
+            }
+            
+            fetch('/api/answers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    activity_id: activityId,
+                    question_id: currentQuestion.id,
+                    user_id: userId,
+                    answer_text: answerText
+                })
+            })
+            .then(res => {
+                if (!res.ok) {
+                    return res.json().then(data => {
+                        throw new Error(data.error || '送出答案失敗');
+                    });
+                }
+                return res.json();
+            })
+            .then(data => {
+                // 更新剩余回答次數
+                if (remainingAnswers !== null) {
+                    remainingAnswers--;
+                }
+                updateSubmitButton();
+                document.getElementById('successMsg').classList.add('show');
+                
+                // 如果還有剩余次數，清空輸入框允許再次回答
+                if (remainingAnswers === null || remainingAnswers > 0) {
+                    document.getElementById('answerText').value = '';
+                } else {
+                    // 已達限制，禁用按鈕
+                    document.getElementById('submitBtn').disabled = true;
+                }
+            })
+            .catch(err => {
+                alert(err.message || '送出答案失敗');
+                console.error(err);
+            });
+        }
+        
+        // 更新背景閃爍效果（最後5秒）
+        function updateBackgroundFlash() {
+            const body = document.body;
+            if (timeRemaining > 0 && timeRemaining <= 5) {
+                // 計算紅色深度：5秒最淺，1秒最深
+                const intensity = 6 - timeRemaining; // 1到5
+                const redValue = Math.min(255, 100 + (intensity * 7)); // 100到135（與display.html一致）
+                
+                // 計算漸層顏色（從淺紅到深紅）
+                const flashColorStart = `rgb(${redValue}, 20, 20)`;
+                const flashColorEnd = `rgb(${Math.min(255, redValue + 30)}, 20, 30)`;
+                
+                // 移除之前的動畫類
+                body.classList.remove('flash-red');
+                
+                // 設置閃爍顏色
+                document.documentElement.style.setProperty('--flash-color-start', flashColorStart);
+                document.documentElement.style.setProperty('--flash-color-end', flashColorEnd);
+                
+                // 觸發動畫（使用 setTimeout 確保動畫可以重複觸發）
+                setTimeout(() => {
+                    body.classList.add('flash-red');
+                }, 10);
+            } else if (timeRemaining > 5 || timeRemaining <= 0) {
+                // 超過5秒或時間到時，移除閃爍效果
+                body.classList.remove('flash-red');
+            }
+        }
+    </script>
+</body>
+</html>
+

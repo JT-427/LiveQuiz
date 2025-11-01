@@ -1,0 +1,1683 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>活動管理 - {{ activity_id }}</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { color: #333; }
+        .back-btn {
+            padding: 10px 20px;
+            background: #95a5a6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .back-btn:hover { opacity: 0.9; }
+        
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: bold; }
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        textarea { min-height: 100px; resize: vertical; }
+        button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { opacity: 0.9; }
+        button.danger { background: #e74c3c; }
+        button.success { background: #27ae60; }
+        
+        .section {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .section h2 { margin-bottom: 20px; color: #333; }
+        .section h3 { margin-bottom: 15px; color: #555; }
+        
+        .answers-section {
+            margin-top: 20px;
+        }
+        .filter-controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .filter-controls label {
+            font-weight: bold;
+            margin-right: 10px;
+            color: #555;
+        }
+        .filter-controls input[type="text"] {
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            min-width: 250px;
+            transition: border-color 0.3s;
+        }
+        .filter-controls input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .filter-controls .search-icon {
+            position: relative;
+        }
+        .filter-controls .search-icon::before {
+            content: '🔍';
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+        }
+        .filter-controls .clear-btn {
+            padding: 8px 16px;
+            background: #95a5a6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .filter-controls .clear-btn:hover {
+            background: #7f8c8d;
+        }
+        .answers-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .answers-table thead {
+            background: #667eea;
+            color: white;
+        }
+        .answers-table th {
+            padding: 15px;
+            text-align: left;
+            font-weight: bold;
+            position: relative;
+        }
+        .answers-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            color: #333;
+        }
+        .answers-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+        .answers-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .user-name-cell {
+            font-weight: bold;
+            color: #667eea;
+            position: sticky;
+            left: 0;
+            background: white;
+            z-index: 1;
+            min-width: 150px;
+        }
+        .answers-table tbody tr:hover .user-name-cell {
+            background: #f8f9fa;
+        }
+        .answer-cell {
+            max-width: 300px;
+            word-wrap: break-word;
+            color: #555;
+            position: relative;
+        }
+        .no-answer {
+            color: #999;
+            font-style: italic;
+        }
+        .answer-main {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        .answer-text-content {
+            flex: 1;
+            word-wrap: break-word;
+        }
+        .expand-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+        .expand-btn:hover {
+            background: #5568d3;
+        }
+        .answer-list {
+            margin-top: 8px;
+            padding-left: 15px;
+            border-left: 2px solid #ddd;
+        }
+        .answer-item-history {
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 3px solid #667eea;
+        }
+        .answer-item-time {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+        }
+        .answer-count-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            border-radius: 12px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+        .project-btn {
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+            transition: background 0.2s;
+            margin-right: 8px;
+        }
+        .project-btn:hover {
+            background: #229954;
+        }
+        .answer-item-with-btn {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .answer-item-history {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        
+        .groups-input {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .group-item {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .group-item input {
+            flex: 1;
+        }
+        .group-item button {
+            padding: 8px 16px;
+            background: #e74c3c;
+        }
+        .add-group-btn {
+            background: #27ae60;
+            padding: 10px 20px;
+            margin-top: 10px;
+        }
+        
+        .questions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .question-card {
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        .question-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+            transform: translateY(-2px);
+        }
+        .question-card.selected {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        .question-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        .question-card-content {
+            font-size: 16px;
+            line-height: 1.5;
+            color: #333;
+            margin-bottom: 12px;
+            min-height: 60px;
+            word-wrap: break-word;
+        }
+        .question-card-meta {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .question-card-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #eee;
+        }
+        .question-card-actions button {
+            flex: 1;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        .question-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .question-type-short_answer {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .question-type-multiple_choice {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        .question-type-multiple_select {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        .question-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .question-modal.active {
+            display: flex;
+        }
+        .question-modal-content {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .question-modal-content h3 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 id="activityName">活動管理</h1>
+            <a href="/admin" class="back-btn">← 返回</a>
+        </div>
+        
+        <div id="activityDetails"></div>
+    </div>
+    
+    <!-- 題目編輯/新增模態框 -->
+    <div id="questionModal" class="question-modal">
+        <div class="question-modal-content">
+            <h3 id="questionModalTitle">新增題目</h3>
+            <form id="questionForm" onsubmit="saveQuestion(event)">
+                <div class="form-group">
+                    <label>題型</label>
+                    <select id="modalQuestionType" required onchange="toggleOptionsField()">
+                        <option value="short_answer">簡答題</option>
+                        <option value="multiple_choice">選擇題</option>
+                        <option value="multiple_select">多選題</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>題目內容</label>
+                    <textarea id="modalQuestionContent" required min-height="100px" style="min-height: 100px;"></textarea>
+                </div>
+                <div class="form-group" id="modalOptionsGroup" style="display: none;">
+                    <label>選項（每行一個）</label>
+                    <textarea id="modalQuestionOptions" placeholder="選項1&#10;選項2&#10;選項3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>時間限制（秒）</label>
+                    <input type="number" id="modalTimeLimit" value="60" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label>回答次數限制（留空為無限制）</label>
+                    <input type="number" id="modalAnswerLimit" min="1" placeholder="留空為無限制">
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="success">儲存</button>
+                    <button type="button" onclick="closeQuestionModal()">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const activityId = {{ activity_id }};
+        let timerInterval = null;
+        let timeRemaining = 0;
+        let currentQuestion = null;
+        
+        let currentActivity = null;
+        
+        function loadActivity() {
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    currentActivity = activity;
+                    document.getElementById('activityName').textContent = activity.name;
+                    const details = document.getElementById('activityDetails');
+                    
+                    // 解析小組設定
+                    let groups = [];
+                    if (activity.groups) {
+                        try {
+                            groups = typeof activity.groups === 'string' ? JSON.parse(activity.groups) : activity.groups;
+                        } catch(e) {
+                            groups = [];
+                        }
+                    }
+                    if (groups.length === 0 && activity.groups_count) {
+                        groups = Array.from({length: activity.groups_count}, (_, i) => `第${i+1}組`);
+                    }
+                    
+                    let groupsHtml = '';
+                    groups.forEach((group, index) => {
+                        groupsHtml += `
+                            <div class="group-item">
+                                <input type="text" value="${group}" data-index="${index}" placeholder="小組名稱">
+                                <button onclick="removeGroup(${index})">刪除</button>
+                            </div>
+                        `;
+                    });
+                    
+                    let html = `
+                        <div class="section">
+                            <h2>活動設定</h2>
+                            <div class="form-group">
+                                <label>小組設定</label>
+                                <div class="groups-input" id="groupsInput">
+                                    ${groupsHtml || '<p style="color: #999;">目前沒有設定小組</p>'}
+                                </div>
+                                <button class="add-group-btn" onclick="addGroup()">新增小組</button>
+                                <button onclick="saveGroups()" style="margin-top: 10px;">儲存小組設定</button>
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <h2>📺 投影畫面控制</h2>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                                <button class="success" onclick="showDisplay('qrcode')" style="padding: 15px;">
+                                    📱 顯示 QR Code
+                                </button>
+                                <button class="success" onclick="showStatsHorizontalWithLimit()" style="padding: 15px;">
+                                    📊 統計數據（橫式長條圖）
+                                </button>
+                                <button class="success" onclick="showDisplay('stats_vertical')" style="padding: 15px;">
+                                    📊 統計數據（直式長條圖）
+                                </button>
+                                <button class="success" onclick="showDisplay('question')" style="padding: 15px;">
+                                    ❓ 顯示題目
+                                </button>
+                                <button onclick="showDisplay('none')" style="padding: 15px; background: #95a5a6;">
+                                    ⬛ 關閉顯示
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <h2>搶答控制</h2>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <label>選擇題目</label>
+                                <button class="success" onclick="openQuestionModal()" style="padding: 8px 16px; font-size: 14px;">
+                                    ➕ 新增題目
+                                </button>
+                            </div>
+                            <div id="questionsGrid" class="questions-grid">
+                                <div style="grid-column: 1 / -1; text-align: center; color: #999; padding: 40px;">
+                                    載入題目中...
+                                </div>
+                            </div>
+                            <div id="questionInfo" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong>當前題目：</strong><span id="currentQuestionName"></span><br>
+                                        <small>時間限制：<span id="currentQuestionTime"></span> 秒</small>
+                                        <br><small id="answerLimitInfo"></small>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="font-size: 48px; font-weight: bold; color: #667eea;" id="timerDisplay">--:--</div>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                    <button class="success" onclick="restoreDisplay()" style="width: 100%; padding: 10px; font-size: 14px;">
+                                        📺 恢復投影畫面顯示
+                                    </button>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <button class="success" onclick="startActivity()">開始搶答</button>
+                                <button class="danger" onclick="endActivity()">結束搶答</button>
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <h2>回答紀錄</h2>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <div class="filter-controls" style="margin: 0; flex: 1;">
+                                    <label>搜尋用戶：</label>
+                                    <div class="search-icon" style="position: relative;">
+                                        <input type="text" id="userFilter" placeholder="輸入用戶名稱或小組名稱搜尋..." 
+                                               oninput="filterAnswersTable()" 
+                                               style="padding-right: 40px;">
+                                    </div>
+                                    <button class="clear-btn" onclick="clearUserFilter()">清除</button>
+                                </div>
+                                <button class="success" onclick="exportToCSV()" style="margin-left: 20px; padding: 10px 20px;">
+                                    📥 匯出 CSV
+                                </button>
+                            </div>
+                            <div class="answers-section">
+                                <div style="overflow-x: auto;">
+                                    <table class="answers-table" id="answersTable">
+                                        <thead>
+                                            <tr id="tableHeader">
+                                                <th>用戶名稱</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tableBody">
+                                            <tr>
+                                                <td colspan="100%" style="text-align: center; padding: 30px; color: #999;">
+                                                    載入中...
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    details.innerHTML = html;
+                    
+                    // 載入題目卡片
+                    // 確保 DOM 元素已創建後再載入
+                    setTimeout(() => {
+                        const grid = document.getElementById('questionsGrid');
+                        if (grid) {
+                            loadQuestionsCards(activity.current_question_id);
+                        } else {
+                            console.error('questionsGrid 元素尚未創建');
+                        }
+                    }, 50);
+                    
+                    // 載入題目並構建表格
+                    fetch('/api/questions')
+                        .then(res => res.json())
+                        .then(questions => {
+                            buildAnswersTable(activity, questions);
+                        });
+                });
+        }
+        
+        function addGroup() {
+            const container = document.getElementById('groupsInput');
+            if (container.querySelector('p')) {
+                container.innerHTML = '';
+            }
+            const index = container.children.length;
+            const div = document.createElement('div');
+            div.className = 'group-item';
+            div.innerHTML = `
+                <input type="text" placeholder="小組名稱" data-index="${index}">
+                <button onclick="removeGroup(${index})">刪除</button>
+            `;
+            container.appendChild(div);
+        }
+        
+        function removeGroup(index) {
+            const container = document.getElementById('groupsInput');
+            const items = Array.from(container.children);
+            items.forEach((item, i) => {
+                if (parseInt(item.querySelector('input').dataset.index) === index) {
+                    item.remove();
+                }
+            });
+            if (container.children.length === 0) {
+                container.innerHTML = '<p style="color: #999;">目前沒有設定小組</p>';
+            }
+        }
+        
+        function saveGroups() {
+            const container = document.getElementById('groupsInput');
+            const inputs = container.querySelectorAll('input');
+            const groups = Array.from(inputs)
+                .map(input => input.value.trim())
+                .filter(name => name !== '');
+            
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ groups: groups })
+            })
+            .then(() => {
+                alert('小組設定已儲存');
+                loadActivity();
+            });
+        }
+        
+        function showDisplay(mode, limit = null) {
+            const body = { display_mode: mode };
+            if (limit !== null) {
+                body.stats_limit = limit;
+            }
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+            .then(() => {
+                console.log('投影畫面已切換為:', mode, limit ? `(限制${limit}筆)` : '');
+                // 不再彈出確認訊息，靜默執行
+            })
+            .catch(err => {
+                console.error('切換投影畫面失敗:', err);
+            });
+        }
+        
+        // 顯示統計數據（橫式長條圖）並選擇顯示筆數
+        function showStatsHorizontalWithLimit() {
+            const limitInput = prompt('請輸入要顯示的筆數（留空或輸入0表示顯示全部）：');
+            
+            if (limitInput === null) {
+                // 用戶取消
+                return;
+            }
+            
+            let limit = null;
+            if (limitInput.trim() !== '') {
+                const num = parseInt(limitInput.trim());
+                if (!isNaN(num) && num > 0) {
+                    limit = num;
+                }
+            }
+            
+            // 傳遞 limit 參數，如果是 null 則顯示全部
+            showDisplay('stats_horizontal', limit);
+        }
+        
+        // 恢復投影畫面顯示（在搶答進行中時）
+        function restoreDisplay() {
+            if (!currentActivity || currentActivity.status !== 'active') {
+                alert('目前沒有進行中的搶答');
+                return;
+            }
+            
+            if (!currentActivity.current_question_id) {
+                alert('請先選擇題目');
+                return;
+            }
+            
+            // 設置顯示模式為 question，並確保題目正確顯示
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    display_mode: 'question',
+                    current_question_id: currentActivity.current_question_id
+                })
+            })
+            .then(() => {
+                console.log('投影畫面已恢復為題目顯示模式');
+                // 不需要彈出提示，靜默執行
+            })
+            .catch(err => {
+                console.error('恢復投影畫面失敗:', err);
+                alert('恢復投影畫面失敗，請重試');
+            });
+        }
+        
+        let allQuestionsList = [];
+        let editingQuestionId = null;
+        
+        // 載入題目卡片
+        function loadQuestionsCards(selectedQuestionId = null) {
+            console.log('載入題目卡片, selectedQuestionId:', selectedQuestionId);
+            const grid = document.getElementById('questionsGrid');
+            if (!grid) {
+                console.error('questionsGrid 元素不存在');
+                return;
+            }
+            
+            fetch('/api/questions')
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error(`HTTP error! status: ${res.status}`);
+                    }
+                    return res.json();
+                })
+                .then(questions => {
+                    console.log('載入的題目數量:', questions.length);
+                    allQuestionsList = questions;
+                    grid.innerHTML = '';
+                    
+                    if (questions.length === 0) {
+                        grid.innerHTML = `
+                            <div style="grid-column: 1 / -1; text-align: center; color: #999; padding: 40px;">
+                                目前沒有題目，請點擊「新增題目」按鈕新增題目
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    questions.forEach(q => {
+                        const isSelected = selectedQuestionId && parseInt(q.id) === parseInt(selectedQuestionId);
+                        const card = createQuestionCard(q, isSelected);
+                        grid.appendChild(card);
+                    });
+                    
+                    // 如果有選中的題目，載入其信息
+                    if (selectedQuestionId) {
+                        const question = questions.find(q => parseInt(q.id) === parseInt(selectedQuestionId));
+                        if (question) {
+                            loadCurrentQuestionInfo(selectedQuestionId, questions);
+                        } else {
+                            console.warn('找不到選中的題目 ID:', selectedQuestionId);
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.error('載入題目失敗:', err);
+                    const grid = document.getElementById('questionsGrid');
+                    if (grid) {
+                        grid.innerHTML = `
+                            <div style="grid-column: 1 / -1; text-align: center; color: #e74c3c; padding: 40px;">
+                                載入題目失敗，請重試<br>
+                                <small>錯誤: ${err.message}</small>
+                            </div>
+                        `;
+                    }
+                });
+        }
+        
+        // 創建題目卡片
+        function createQuestionCard(question, isSelected = false) {
+            const card = document.createElement('div');
+            card.className = `question-card ${isSelected ? 'selected' : ''}`;
+            card.dataset.questionId = question.id;
+            
+            // 添加點擊事件（點擊卡片也可以選擇）
+            card.addEventListener('click', function(e) {
+                // 如果點擊的是按鈕或其子元素，不觸發卡片選擇
+                if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+                    return;
+                }
+                selectQuestion(question.id);
+            });
+            
+            const typeNames = {
+                'short_answer': '簡答題',
+                'multiple_choice': '選擇題',
+                'multiple_select': '多選題'
+            };
+            
+            const typeBadgeClass = `question-type-${question.type}`;
+            
+            card.innerHTML = `
+                <div class="question-card-header">
+                    <span class="question-type-badge ${typeBadgeClass}">${typeNames[question.type] || question.type}</span>
+                </div>
+                <div class="question-card-content">${question.content}</div>
+                <div class="question-card-meta">
+                    ⏱️ ${question.time_limit || 60} 秒
+                    ${question.answer_limit ? ` | 📝 ${question.answer_limit} 次限制` : ' | 📝 無限制'}
+                </div>
+                <div class="question-card-actions">
+                    <button class="success" onclick="event.stopPropagation(); selectQuestion(${question.id})">選擇</button>
+                    <button onclick="event.stopPropagation(); editQuestion(${question.id})">編輯</button>
+                    <button class="danger" onclick="event.stopPropagation(); deleteQuestion(${question.id})">刪除</button>
+                </div>
+            `;
+            
+            return card;
+        }
+        
+        // 選擇題目
+        function selectQuestion(questionId) {
+            console.log('選擇題目:', questionId);
+            
+            // 更新活動的當前題目
+            updateActivityQuestion(questionId);
+            
+            // 更新卡片選中狀態
+            document.querySelectorAll('.question-card').forEach(card => {
+                card.classList.remove('selected');
+                if (parseInt(card.dataset.questionId) === parseInt(questionId)) {
+                    card.classList.add('selected');
+                }
+            });
+            
+            // 載入題目信息
+            if (allQuestionsList && allQuestionsList.length > 0) {
+                loadCurrentQuestionInfo(questionId, allQuestionsList);
+            } else {
+                // 如果題目列表還沒載入，先載入題目
+                fetch('/api/questions')
+                    .then(res => res.json())
+                    .then(questions => {
+                        allQuestionsList = questions;
+                        loadCurrentQuestionInfo(questionId, questions);
+                    });
+            }
+        }
+        
+        // 編輯題目
+        function editQuestion(questionId) {
+            const question = allQuestionsList.find(q => q.id === questionId);
+            if (!question) return;
+            
+            editingQuestionId = questionId;
+            document.getElementById('questionModalTitle').textContent = '編輯題目';
+            document.getElementById('modalQuestionType').value = question.type;
+            document.getElementById('modalQuestionContent').value = question.content;
+            document.getElementById('modalTimeLimit').value = question.time_limit || 60;
+            document.getElementById('modalAnswerLimit').value = question.answer_limit || '';
+            
+            // 處理選項
+            if (question.options && typeof question.options === 'string') {
+                try {
+                    const options = JSON.parse(question.options);
+                    document.getElementById('modalQuestionOptions').value = options.join('\n');
+                } catch(e) {
+                    document.getElementById('modalQuestionOptions').value = '';
+                }
+            } else if (Array.isArray(question.options)) {
+                document.getElementById('modalQuestionOptions').value = question.options.join('\n');
+            } else {
+                document.getElementById('modalQuestionOptions').value = '';
+            }
+            
+            toggleOptionsField();
+            document.getElementById('questionModal').classList.add('active');
+        }
+        
+        // 打開新增題目模態框
+        function openQuestionModal() {
+            editingQuestionId = null;
+            document.getElementById('questionModalTitle').textContent = '新增題目';
+            document.getElementById('questionForm').reset();
+            document.getElementById('modalQuestionType').value = 'short_answer';
+            document.getElementById('modalTimeLimit').value = 60;
+            document.getElementById('modalAnswerLimit').value = '';
+            document.getElementById('modalQuestionOptions').value = '';
+            document.getElementById('modalOptionsGroup').style.display = 'none';
+            document.getElementById('questionModal').classList.add('active');
+        }
+        
+        // 關閉題目模態框
+        function closeQuestionModal() {
+            document.getElementById('questionModal').classList.remove('active');
+            editingQuestionId = null;
+        }
+        
+        // 切換選項欄位顯示
+        function toggleOptionsField() {
+            const type = document.getElementById('modalQuestionType').value;
+            const optionsGroup = document.getElementById('modalOptionsGroup');
+            if (type === 'multiple_choice' || type === 'multiple_select') {
+                optionsGroup.style.display = 'block';
+            } else {
+                optionsGroup.style.display = 'none';
+            }
+        }
+        
+        // 儲存題目
+        function saveQuestion(event) {
+            event.preventDefault();
+            
+            const type = document.getElementById('modalQuestionType').value;
+            const content = document.getElementById('modalQuestionContent').value;
+            const timeLimit = parseInt(document.getElementById('modalTimeLimit').value) || 60;
+            const answerLimit = document.getElementById('modalAnswerLimit').value;
+            let options = [];
+            
+            if (type === 'multiple_choice' || type === 'multiple_select') {
+                const optionsText = document.getElementById('modalQuestionOptions').value;
+                options = optionsText.split('\n').filter(o => o.trim());
+            }
+            
+            const payload = {
+                type: type,
+                content: content,
+                options: options,
+                time_limit: timeLimit
+            };
+            
+            if (answerLimit && answerLimit.trim() !== '') {
+                payload.answer_limit = parseInt(answerLimit);
+            }
+            
+            const url = editingQuestionId ? `/api/questions/${editingQuestionId}` : '/api/questions';
+            const method = editingQuestionId ? 'PUT' : 'POST';
+            
+            fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                closeQuestionModal();
+                // 重新載入活動以獲取最新的 current_question_id
+                fetch(`/api/activities/${activityId}`)
+                    .then(res => res.json())
+                    .then(activity => {
+                        currentActivity = activity;
+                        loadQuestionsCards(activity.current_question_id);
+                    })
+                    .catch(err => {
+                        console.error('重新載入活動失敗:', err);
+                        // 即使失敗也重新載入卡片
+                        loadQuestionsCards(currentActivity ? currentActivity.current_question_id : null);
+                    });
+            })
+            .catch(err => {
+                console.error('儲存題目失敗:', err);
+                alert('儲存題目失敗，請重試');
+            });
+        }
+        
+        // 刪除題目
+        function deleteQuestion(questionId) {
+            if (!confirm('確定要刪除此題目嗎？')) return;
+            
+            fetch(`/api/questions/${questionId}`, { method: 'DELETE' })
+                .then(() => {
+                    // 重新載入活動以獲取最新的 current_question_id
+                    fetch(`/api/activities/${activityId}`)
+                        .then(res => res.json())
+                        .then(activity => {
+                            loadQuestionsCards(activity.current_question_id);
+                            // 如果刪除的是當前選中的題目，清除選擇
+                            if (activity.current_question_id == questionId) {
+                                updateActivityQuestion(null);
+                                document.getElementById('questionInfo').style.display = 'none';
+                            }
+                        });
+                })
+                .catch(err => {
+                    console.error('刪除題目失敗:', err);
+                    alert('刪除題目失敗，請重試');
+                });
+        }
+        
+        function updateActivityQuestion(questionId) {
+            const questionIdValue = questionId ? parseInt(questionId) : null;
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ current_question_id: questionIdValue })
+            })
+            .then(() => {
+                if (currentActivity) {
+                    currentActivity.current_question_id = questionIdValue;
+                }
+                console.log('題目已更新為:', questionIdValue);
+            })
+            .catch(err => {
+                console.error('更新活動題目失敗:', err);
+            });
+        }
+        
+        function loadCurrentQuestionInfo(questionId, questions) {
+            console.log('載入題目信息, questionId:', questionId, 'questions:', questions);
+            const question = questions.find(q => parseInt(q.id) === parseInt(questionId));
+            if (question) {
+                console.log('找到題目:', question);
+                currentQuestion = question;
+                document.getElementById('currentQuestionName').textContent = question.content.substring(0, 60);
+                document.getElementById('currentQuestionTime').textContent = question.time_limit || 60;
+                
+                // 顯示回答次數限制
+                const answerLimitInfo = document.getElementById('answerLimitInfo');
+                if (question.answer_limit) {
+                    answerLimitInfo.textContent = `回答次數限制：${question.answer_limit} 次`;
+                } else {
+                    answerLimitInfo.textContent = '回答次數限制：無限制';
+                }
+                
+                document.getElementById('questionInfo').style.display = 'block';
+                
+                // 如果有進行中的搶答，啟動計時器
+                fetch(`/api/activities/${activityId}`)
+                    .then(res => res.json())
+                    .then(activity => {
+                        if (activity.status === 'active' && activity.current_question_id === questionId) {
+                            startTimer(question.time_limit || 60);
+                        }
+                    });
+            }
+        }
+        
+        function startTimer(seconds) {
+            if (timerInterval) clearInterval(timerInterval);
+            timeRemaining = seconds;
+            updateTimerDisplay();
+            timerInterval = setInterval(() => {
+                timeRemaining--;
+                updateTimerDisplay();
+                
+                // 透過 WebSocket 廣播計時器時間到投影畫面
+                socket.emit('broadcast_timer', {
+                    activity_id: activityId,
+                    time_remaining: timeRemaining
+                });
+                
+                if (timeRemaining <= 0) {
+                    clearInterval(timerInterval);
+                    // 自動結束搶答
+                    endActivityAutomatically();
+                }
+            }, 1000);
+            
+            // 立即發送一次當前時間
+            socket.emit('broadcast_timer', {
+                activity_id: activityId,
+                time_remaining: timeRemaining
+            });
+        }
+        
+        function endActivityAutomatically() {
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'ended' })
+            })
+            .then(() => {
+                loadActivity();
+            })
+            .catch(err => console.error('自動結束搶答失敗:', err));
+        }
+        
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeRemaining / 60);
+            const secs = timeRemaining % 60;
+            const timerEl = document.getElementById('timerDisplay');
+            timerEl.textContent = `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            
+            timerEl.style.color = '#667eea';
+            if (timeRemaining <= 10) {
+                timerEl.style.color = '#e74c3c';
+            } else if (timeRemaining <= 30) {
+                timerEl.style.color = '#f39c12';
+            }
+        }
+        
+        function startActivity() {
+            // 從卡片中找到選中的題目
+            const selectedCard = document.querySelector('.question-card.selected');
+            if (!selectedCard) {
+                alert('請先選擇題目');
+                return;
+            }
+            
+            const questionId = parseInt(selectedCard.dataset.questionId);
+            if (!questionId) {
+                alert('請先選擇題目');
+                return;
+            }
+            
+            // 載入題目信息以啟動計時器
+            fetch('/api/questions')
+                .then(res => res.json())
+                .then(questions => {
+                    const question = questions.find(q => q.id === questionId);
+                    if (question) {
+                        fetch(`/api/activities/${activityId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                status: 'active',
+                                current_question_id: questionId,
+                                display_mode: 'question'
+                            })
+                        })
+                        .then(() => {
+                            startTimer(question.time_limit || 60);
+                            loadActivity();
+                        });
+                    }
+                });
+        }
+        
+        function endActivity() {
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'ended' })
+            })
+            .then(() => {
+                // 停止計時器
+                if (timerInterval) clearInterval(timerInterval);
+                loadActivity();
+            });
+        }
+        
+        // 所有題目數據（用於表格構建）
+        let allQuestions = [];
+        
+        // 構建回答表格
+        function buildAnswersTable(activity, questions, skipHeader = false) {
+            allQuestions = questions;
+            currentActivityData = activity; // 保存活動數據供篩選使用
+            
+            // 獲取活動中的所有題目（如果有在活動中使用過）
+            const activityQuestionIds = new Set();
+            if (activity.answers && activity.answers.length > 0) {
+                activity.answers.forEach(answer => {
+                    activityQuestionIds.add(answer.question_id);
+                });
+            }
+            
+            // 過濾出活動中實際使用過的題目
+            const usedQuestions = questions.filter(q => activityQuestionIds.has(q.id));
+            
+            // 只在需要時構建表格標題（不是篩選時）
+            if (!skipHeader) {
+                const tableHeader = document.getElementById('tableHeader');
+                tableHeader.innerHTML = '<th style="position: sticky; left: 0; background: #667eea; z-index: 2; min-width: 150px;">用戶名稱</th>';
+                usedQuestions.forEach(q => {
+                    const th = document.createElement('th');
+                    th.textContent = q.content.length > 30 ? q.content.substring(0, 30) + '...' : q.content;
+                    th.title = q.content;
+                    tableHeader.appendChild(th);
+                });
+            }
+            
+            // 獲取用戶列表
+            const users = activity.users || [];
+            
+            // 組織回答數據：按用戶分組
+            const answersByUser = {};
+            users.forEach(user => {
+                answersByUser[user.id] = {
+                    user: user,
+                    answers: {} // question_id -> [answer1, answer2, ...]
+                };
+            });
+            
+            if (activity.answers && activity.answers.length > 0) {
+                activity.answers.forEach(answer => {
+                    if (!answersByUser[answer.user_id]) {
+                        answersByUser[answer.user_id] = {
+                            user: { id: answer.user_id, name: answer.user_name, group_name: answer.group_name },
+                            answers: {}
+                        };
+                    }
+                    // 保存所有回答（按題目分組）
+                    if (!answersByUser[answer.user_id].answers[answer.question_id]) {
+                        answersByUser[answer.user_id].answers[answer.question_id] = [];
+                    }
+                    answersByUser[answer.user_id].answers[answer.question_id].push(answer);
+                });
+                
+                // 對每個題目的回答按時間排序（最新的在前）
+                Object.values(answersByUser).forEach(userData => {
+                    Object.keys(userData.answers).forEach(questionId => {
+                        userData.answers[questionId].sort((a, b) => 
+                            new Date(b.submitted_at) - new Date(a.submitted_at)
+                        );
+                    });
+                });
+            }
+            
+            // 構建表格內容
+            renderAnswersTable(answersByUser, usedQuestions);
+        }
+        
+        // 保存活動數據供篩選使用
+        let currentActivityData = null;
+        let currentUsedQuestions = [];
+        
+        // 渲染回答表格
+        function renderAnswersTable(answersByUser, questions) {
+            currentUsedQuestions = questions;
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+            
+            // 獲取搜尋關鍵字
+            const searchKeyword = document.getElementById('userFilter').value.trim().toLowerCase();
+            
+            // 根據搜尋關鍵字篩選用戶
+            let filteredUsers;
+            if (searchKeyword === '') {
+                filteredUsers = Object.values(answersByUser);
+            } else {
+                filteredUsers = Object.values(answersByUser).filter(data => {
+                    const userName = (data.user.name || '').toLowerCase();
+                    const groupName = (data.user.group_name || '').toLowerCase();
+                    return userName.includes(searchKeyword) || groupName.includes(searchKeyword);
+                });
+            }
+            
+            if (filteredUsers.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="${questions.length + 1}" style="text-align: center; padding: 30px; color: #999;">
+                            ${searchKeyword ? '找不到符合搜尋條件的用戶' : '尚無回答紀錄'}
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            filteredUsers.forEach(userData => {
+                const row = document.createElement('tr');
+                
+                // 用戶名稱欄
+                const userNameCell = document.createElement('td');
+                userNameCell.className = 'user-name-cell';
+                userNameCell.textContent = `${userData.user.name}${userData.user.group_name ? ' (' + userData.user.group_name + ')' : ''}`;
+                row.appendChild(userNameCell);
+                
+                // 每個題目的回答欄
+                questions.forEach(question => {
+                    const answerCell = document.createElement('td');
+                    answerCell.className = 'answer-cell';
+                    
+                    const answers = userData.answers[question.id];
+                    if (answers && answers.length > 0) {
+                        // 顯示最新的回答
+                        const latestAnswer = answers[0];
+                        const hasMultiple = answers.length > 1;
+                        const cellId = `answer-${userData.user.id}-${question.id}`;
+                        
+                        const answerDiv = document.createElement('div');
+                        answerDiv.className = 'answer-main';
+                        
+                        // 投影按鈕
+                        const projectBtn = document.createElement('button');
+                        projectBtn.className = 'project-btn';
+                        projectBtn.innerHTML = '📺 投影';
+                        projectBtn.title = '投影此回答到投影畫面';
+                        projectBtn.onclick = function(e) {
+                            e.stopPropagation();
+                            projectAnswer(latestAnswer, userData.user, question);
+                        };
+                        
+                        const contentWrapper = document.createElement('div');
+                        contentWrapper.style.display = 'flex';
+                        contentWrapper.style.alignItems = 'flex-start';
+                        contentWrapper.style.gap = '8px';
+                        contentWrapper.style.flex = '1';
+                        
+                        const textDiv = document.createElement('div');
+                        textDiv.className = 'answer-text-content';
+                        textDiv.textContent = latestAnswer.answer_text;
+                        textDiv.title = `提交時間: ${new Date(latestAnswer.submitted_at).toLocaleString('zh-TW')}`;
+                        textDiv.style.flex = '1';
+                        
+                        contentWrapper.appendChild(projectBtn);
+                        contentWrapper.appendChild(textDiv);
+                        answerDiv.appendChild(contentWrapper);
+                        
+                        if (hasMultiple) {
+                            // 顯示回答數量標籤和展開按鈕
+                            const expandDiv = document.createElement('div');
+                            const badge = document.createElement('span');
+                            badge.className = 'answer-count-badge';
+                            badge.textContent = `${answers.length}個回答`;
+                            
+                            const expandBtn = document.createElement('button');
+                            expandBtn.className = 'expand-btn';
+                            expandBtn.textContent = '展開';
+                            expandBtn.onclick = function(e) {
+                                e.stopPropagation();
+                                toggleAnswerExpansion(cellId, answers, expandBtn, userData.user.id, question.id);
+                            };
+                            
+                            expandDiv.appendChild(badge);
+                            expandDiv.appendChild(expandBtn);
+                            answerDiv.appendChild(expandDiv);
+                        }
+                        
+                        answerCell.appendChild(answerDiv);
+                        
+                        // 展開區域（初始隱藏）
+                        const expandArea = document.createElement('div');
+                        expandArea.id = cellId;
+                        expandArea.className = 'answer-list';
+                        expandArea.style.display = 'none';
+                        answerCell.appendChild(expandArea);
+                    } else {
+                        answerCell.textContent = '-';
+                        answerCell.className += ' no-answer';
+                    }
+                    row.appendChild(answerCell);
+                });
+                
+                tableBody.appendChild(row);
+            });
+        }
+        
+        // 切換回答展開/收起
+        function toggleAnswerExpansion(cellId, answers, btn, userId, questionId) {
+            const expandArea = document.getElementById(cellId);
+            if (!expandArea) return;
+            
+            if (expandArea.style.display === 'none') {
+                // 展開：顯示所有回答
+                expandArea.innerHTML = '';
+                answers.forEach((answer, index) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'answer-item-history';
+                    
+                    // 投影按鈕
+                    const projectBtn = document.createElement('button');
+                    projectBtn.className = 'project-btn';
+                    projectBtn.innerHTML = '📺 投影';
+                    projectBtn.title = '投影此回答到投影畫面';
+                    projectBtn.onclick = function(e) {
+                        e.stopPropagation();
+                        // 需要獲取用戶和題目資訊
+                        fetch(`/api/activities/${activityId}`)
+                            .then(res => res.json())
+                            .then(activity => {
+                                const user = activity.users.find(u => u.id == userId);
+                                fetch('/api/questions')
+                                    .then(res => res.json())
+                                    .then(questions => {
+                                        const q = questions.find(q => q.id == questionId);
+                                        projectAnswer(answer, user, q);
+                                    });
+                            });
+                    };
+                    
+                    const contentDiv = document.createElement('div');
+                    contentDiv.style.flex = '1';
+                    
+                    const answerText = document.createElement('div');
+                    answerText.textContent = answer.answer_text;
+                    answerText.style.marginBottom = '4px';
+                    
+                    const answerTime = document.createElement('div');
+                    answerTime.className = 'answer-item-time';
+                    answerTime.textContent = `提交時間: ${new Date(answer.submitted_at).toLocaleString('zh-TW')}`;
+                    
+                    contentDiv.appendChild(answerText);
+                    contentDiv.appendChild(answerTime);
+                    
+                    itemDiv.appendChild(projectBtn);
+                    itemDiv.appendChild(contentDiv);
+                    expandArea.appendChild(itemDiv);
+                });
+                
+                expandArea.style.display = 'block';
+                btn.textContent = '收起';
+            } else {
+                // 收起
+                expandArea.style.display = 'none';
+                expandArea.innerHTML = '';
+                btn.textContent = '展開';
+            }
+        }
+        
+        // 篩選表格（即時搜尋，不需要重新載入數據）
+        function filterAnswersTable() {
+            if (currentActivityData && currentUsedQuestions.length > 0) {
+                // 重新構建表格但保留活動數據
+                buildAnswersTable(currentActivityData, allQuestions, true);
+            } else {
+                // 如果沒有緩存數據，重新載入
+                fetch(`/api/activities/${activityId}`)
+                    .then(res => res.json())
+                    .then(activity => {
+                        fetch('/api/questions')
+                            .then(res => res.json())
+                            .then(questions => {
+                                buildAnswersTable(activity, questions);
+                            });
+                    });
+            }
+        }
+        
+        // 清除搜尋
+        function clearUserFilter() {
+            document.getElementById('userFilter').value = '';
+            filterAnswersTable();
+        }
+        
+        // 匯出 CSV
+        function exportToCSV() {
+            if (!currentActivityData) {
+                alert('請先載入活動數據');
+                return;
+            }
+            
+            // 重新載入完整的活動數據（包含所有回答）
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    fetch('/api/questions')
+                        .then(res => res.json())
+                        .then(questions => {
+                            generateCSV(activity, questions);
+                        });
+                })
+                .catch(err => {
+                    console.error('載入數據失敗:', err);
+                    alert('匯出失敗，請重試');
+                });
+        }
+        
+        // 生成 CSV 內容
+        function generateCSV(activity, questions) {
+            // 獲取活動中使用的題目（按回答中出現的題目）
+            const questionIds = new Set();
+            if (activity.answers && activity.answers.length > 0) {
+                activity.answers.forEach(answer => {
+                    questionIds.add(answer.question_id);
+                });
+            }
+            
+            const usedQuestions = questions.filter(q => questionIds.has(q.id));
+            
+            // 構建用戶回答映射
+            const users = activity.users || [];
+            const answersByUser = {};
+            users.forEach(user => {
+                answersByUser[user.id] = {
+                    user: user,
+                    answers: {}
+                };
+            });
+            
+            if (activity.answers && activity.answers.length > 0) {
+                activity.answers.forEach(answer => {
+                    if (!answersByUser[answer.user_id]) {
+                        answersByUser[answer.user_id] = {
+                            user: { id: answer.user_id, name: answer.user_name, group_name: answer.group_name },
+                            answers: {}
+                        };
+                    }
+                    if (!answersByUser[answer.user_id].answers[answer.question_id]) {
+                        answersByUser[answer.user_id].answers[answer.question_id] = [];
+                    }
+                    answersByUser[answer.user_id].answers[answer.question_id].push(answer);
+                });
+            }
+            
+            // 構建 CSV 內容
+            const csvRows = [];
+            
+            // 標題行
+            const headers = ['用戶名稱', '小組'];
+            usedQuestions.forEach(q => {
+                headers.push(`"${q.content.replace(/"/g, '""')}"`);
+            });
+            csvRows.push(headers.join(','));
+            
+            // 數據行
+            Object.values(answersByUser).forEach(userData => {
+                const row = [];
+                row.push(`"${(userData.user.name || '').replace(/"/g, '""')}"`);
+                row.push(`"${(userData.user.group_name || '').replace(/"/g, '""')}"`);
+                
+                usedQuestions.forEach(question => {
+                    const answers = userData.answers[question.id];
+                    if (answers && answers.length > 0) {
+                        // 將所有回答用分號分隔
+                        const answerTexts = answers.map(a => 
+                            a.answer_text.replace(/"/g, '""').replace(/\n/g, ' ')
+                        );
+                        row.push(`"${answerTexts.join('; ')}"`);
+                    } else {
+                        row.push('');
+                    }
+                });
+                
+                csvRows.push(row.join(','));
+            });
+            
+            // 創建 CSV 內容
+            const csvContent = csvRows.join('\n');
+            
+            // 添加 BOM 以支持中文在 Excel 中正確顯示
+            const BOM = '\uFEFF';
+            const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', `活動_${activity.name || activityId}_回答紀錄_${new Date().toISOString().slice(0, 10)}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            console.log('CSV 已匯出');
+        }
+        
+        // 投影回答到投影畫面
+        function projectAnswer(answer, user, question) {
+            if (!answer) {
+                console.error('無法投影：回答數據為空');
+                return;
+            }
+            
+            // 準備回答數據
+            const answerData = {
+                answer_text: answer.answer_text || '',
+                user_name: user ? user.name : (answer.user_name || '未知用戶'),
+                group_name: user ? (user.group_name || '') : (answer.group_name || ''),
+                question_content: question ? question.content : '',
+                submitted_at: answer.submitted_at || new Date().toISOString()
+            };
+            
+            // 設置顯示模式為 answer，並通過 WebSocket 發送回答數據
+            fetch(`/api/activities/${activityId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    display_mode: 'answer',
+                    projected_answer: answerData
+                })
+            })
+            .then(() => {
+                // 通過 WebSocket 發送回答數據到投影畫面
+                socket.emit('project_answer', {
+                    activity_id: activityId,
+                    answer: answerData
+                });
+                console.log('回答已投影:', answerData);
+            })
+            .catch(err => {
+                console.error('投影回答失敗:', err);
+                alert('投影回答失敗，請重試');
+            });
+        }
+        
+        // 監聽回答提交（更新回答列表，但不影響計時器）
+        socket.on('answer_submitted', (data) => {
+            if (data.activity_id === activityId) {
+                // 重新載入活動和表格
+                fetch(`/api/activities/${activityId}`)
+                    .then(res => res.json())
+                    .then(activity => {
+                        fetch('/api/questions')
+                            .then(res => res.json())
+                            .then(questions => {
+                                buildAnswersTable(activity, questions);
+                            });
+                    });
+            }
+        });
+        
+        // 監聽活動狀態更新
+        socket.on('activity_updated', (data) => {
+            if (data.activity_id === activityId) {
+                // 更新 currentActivity
+                if (data.updates.status) {
+                    if (currentActivity) currentActivity.status = data.updates.status;
+                }
+                if (data.updates.current_question_id !== undefined) {
+                    if (currentActivity) currentActivity.current_question_id = data.updates.current_question_id;
+                }
+                
+                if (data.updates.status === 'active' && data.updates.current_question_id) {
+                    // 只有當題目改變時才重新載入
+                    if (!currentQuestion || currentQuestion.id !== data.updates.current_question_id) {
+                        fetch('/api/questions')
+                            .then(res => res.json())
+                            .then(questions => {
+                                loadCurrentQuestionInfo(data.updates.current_question_id, questions);
+                                // 更新卡片選中狀態
+                                document.querySelectorAll('.question-card').forEach(card => {
+                                    card.classList.remove('selected');
+                                    if (card.dataset.questionId == data.updates.current_question_id) {
+                                        card.classList.add('selected');
+                                    }
+                                });
+                            });
+                    }
+                } else if (data.updates.status === 'ended') {
+                    if (timerInterval) clearInterval(timerInterval);
+                    document.getElementById('timerDisplay').textContent = '--:--';
+                    // 隱藏恢復按鈕
+                    const questionInfo = document.getElementById('questionInfo');
+                    if (questionInfo) {
+                        questionInfo.style.display = 'none';
+                    }
+                    loadActivity(); // 重新載入整個活動
+                }
+            }
+        });
+        
+        // 監聽題目更新
+        socket.on('question_created', (data) => {
+            console.log('題目已創建，重新載入卡片');
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    currentActivity = activity;
+                    loadQuestionsCards(activity.current_question_id);
+                })
+                .catch(err => {
+                    console.error('載入活動失敗:', err);
+                    loadQuestionsCards(currentActivity ? currentActivity.current_question_id : null);
+                });
+        });
+        
+        socket.on('question_updated', (data) => {
+            console.log('題目已更新，重新載入卡片');
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    currentActivity = activity;
+                    loadQuestionsCards(activity.current_question_id);
+                })
+                .catch(err => {
+                    console.error('載入活動失敗:', err);
+                    loadQuestionsCards(currentActivity ? currentActivity.current_question_id : null);
+                });
+        });
+        
+        socket.on('question_deleted', (data) => {
+            console.log('題目已刪除，重新載入卡片');
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    currentActivity = activity;
+                    loadQuestionsCards(activity.current_question_id);
+                    // 如果刪除的是當前選中的題目，清除選擇
+                    if (activity.current_question_id == data.id) {
+                        updateActivityQuestion(null);
+                        document.getElementById('questionInfo').style.display = 'none';
+                    }
+                })
+                .catch(err => {
+                    console.error('載入活動失敗:', err);
+                    loadQuestionsCards(currentActivity ? currentActivity.current_question_id : null);
+                });
+        });
+        
+        // 載入活動資料
+        loadActivity();
+    </script>
+</body>
+</html>
+
