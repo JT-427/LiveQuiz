@@ -262,6 +262,18 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- 參與名單顯示 -->
+            <div id="participantsDisplay" class="hidden">
+                <div style="text-align: center;">
+                    <h2 style="font-size: 36px; margin-bottom: 30px; color: #667eea;">參與者名單</h2>
+                    <div id="participantsTableContainer" style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; max-width: 1400px; margin: 0 auto;">
+                        <div style="text-align: center; color: #ccc; padding: 40px;">
+                            載入中...
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -370,6 +382,7 @@
             document.getElementById('statsDisplayVertical').classList.add('hidden');
             document.getElementById('questionDisplay').classList.add('hidden');
             document.getElementById('answerDisplay').classList.add('hidden');
+            document.getElementById('participantsDisplay').classList.add('hidden');
             
             // 清除定時器（已移除定時更新，改用 WebSocket 事件驅動）
             if (statsInterval) {
@@ -389,6 +402,8 @@
                 showStatsVertical();
             } else if (mode === 'question' && currentActivityId) {
                 showQuestion();
+            } else if (mode === 'participants' && currentActivityId) {
+                showParticipants();
             } else if (mode === 'answer') {
                 if (answerData) {
                     showAnswer(answerData);
@@ -824,6 +839,96 @@
                 questionDisplay.classList.remove('hidden');
             }
         }
+        
+        // 顯示參與者名單
+        function showParticipants() {
+            if (!currentActivityId) return;
+            
+            document.getElementById('participantsDisplay').classList.remove('hidden');
+            
+            fetch(`/api/activities/${currentActivityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    const users = activity.users || [];
+                    
+                    if (users.length === 0) {
+                        document.getElementById('participantsTableContainer').innerHTML = 
+                            '<div style="text-align: center; color: #ccc; padding: 40px;">尚無參與者</div>';
+                        return;
+                    }
+                    
+                    // 按小組分組
+                    const usersByGroup = {};
+                    users.forEach(user => {
+                        const group = user.group_name || '未分組';
+                        if (!usersByGroup[group]) {
+                            usersByGroup[group] = [];
+                        }
+                        usersByGroup[group].push(user);
+                    });
+                    
+                    // 獲取所有小組名稱並排序
+                    const groups = Object.keys(usersByGroup).sort();
+                    
+                    // 構建表格 HTML
+                    let html = '<table style="width: 100%; border-collapse: collapse; margin: 0 auto;">';
+                    
+                    // 表格標題
+                    html += '<thead><tr>';
+                    groups.forEach(group => {
+                        html += `<th style="padding: 15px; background: rgba(102, 126, 234, 0.3); border: 1px solid rgba(255,255,255,0.2); text-align: center; font-size: 20px;">${group}</th>`;
+                    });
+                    html += '</tr></thead>';
+                    
+                    // 表格內容
+                    html += '<tbody>';
+                    
+                    // 找出最多用戶的小組
+                    const maxUsers = Math.max(...groups.map(g => usersByGroup[g].length));
+                    
+                    // 按行輸出
+                    for (let i = 0; i < maxUsers; i++) {
+                        html += '<tr>';
+                        groups.forEach(group => {
+                            const user = usersByGroup[group][i];
+                            if (user) {
+                                html += `<td style="padding: 12px; border: 1px solid rgba(255,255,255,0.2); text-align: center; font-size: 18px;">${user.name}</td>`;
+                            } else {
+                                html += '<td style="padding: 12px; border: 1px solid rgba(255,255,255,0.2);"></td>';
+                            }
+                        });
+                        html += '</tr>';
+                    }
+                    
+                    html += '</tbody></table>';
+                    
+                    // 顯示統計資訊
+                    html += `<div style="margin-top: 30px; text-align: center; color: #ccc; font-size: 18px;">總參與人數：${users.length} 人 | 小組數：${groups.length} 組</div>`;
+                    
+                    document.getElementById('participantsTableContainer').innerHTML = html;
+                    
+                    console.log('參與者名單已顯示');
+                })
+                .catch(err => {
+                    console.error('載入參與者名單失敗:', err);
+                    document.getElementById('participantsTableContainer').innerHTML = 
+                        '<div style="text-align: center; color: #e74c3c; padding: 40px;">載入失敗</div>';
+                });
+        }
+        
+        // 監聽使用者刪除事件，如果正在顯示參與者名單則更新
+        socket.on('user_deleted', (data) => {
+            if (data.activity_id === currentActivityId && currentDisplayMode === 'participants') {
+                showParticipants();
+            }
+        });
+        
+        // 監聽使用者加入事件，如果正在顯示參與者名單則更新
+        socket.on('user_joined', (data) => {
+            if (data.activity_id === currentActivityId && currentDisplayMode === 'participants') {
+                showParticipants();
+            }
+        });
     </script>
 </body>
 </html>

@@ -493,9 +493,21 @@
                                 <button class="success" onclick="showDisplay('question')" style="padding: 15px;">
                                     ❓ 顯示題目
                                 </button>
+                                <button class="success" onclick="showDisplay('participants')" style="padding: 15px;">
+                                    👥 顯示參與名單
+                                </button>
                                 <button onclick="showDisplay('none')" style="padding: 15px; background: #95a5a6;">
                                     ⬛ 關閉顯示
                                 </button>
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <h2>參與者管理</h2>
+                            <div id="participantsList" style="margin-top: 15px;">
+                                <div style="text-align: center; color: #999; padding: 20px;">
+                                    載入中...
+                                </div>
                             </div>
                         </div>
                         
@@ -573,6 +585,9 @@
                     `;
                     
                     details.innerHTML = html;
+                    
+                    // 載入參與者列表
+                    loadParticipants();
                     
                     // 載入題目卡片
                     // 確保 DOM 元素已創建後再載入
@@ -1288,8 +1303,16 @@
                         const textDiv = document.createElement('div');
                         textDiv.className = 'answer-text-content';
                         textDiv.textContent = latestAnswer.answer_text;
-                        textDiv.title = `提交時間: ${new Date(latestAnswer.submitted_at).toLocaleString('zh-TW')}`;
+                        const submittedTime = new Date(latestAnswer.submitted_at).toLocaleString('zh-TW');
+                        const autoSubmittedLabel = latestAnswer.auto_submitted ? '（時間到自動提交）' : '';
+                        textDiv.title = `提交時間: ${submittedTime}${autoSubmittedLabel}`;
                         textDiv.style.flex = '1';
+                        
+                        // 如果是自動提交的答案，設置為灰色
+                        if (latestAnswer.auto_submitted) {
+                            textDiv.style.color = '#999';
+                            textDiv.style.fontStyle = 'italic';
+                        }
                         
                         contentWrapper.appendChild(projectBtn);
                         contentWrapper.appendChild(textDiv);
@@ -1374,9 +1397,20 @@
                     answerText.textContent = answer.answer_text;
                     answerText.style.marginBottom = '4px';
                     
+                    // 如果是自動提交的答案，設置為灰色
+                    if (answer.auto_submitted) {
+                        answerText.style.color = '#999';
+                        answerText.style.fontStyle = 'italic';
+                    }
+                    
                     const answerTime = document.createElement('div');
                     answerTime.className = 'answer-item-time';
-                    answerTime.textContent = `提交時間: ${new Date(answer.submitted_at).toLocaleString('zh-TW')}`;
+                    const submittedTime = new Date(answer.submitted_at).toLocaleString('zh-TW');
+                    const autoSubmittedLabel = answer.auto_submitted ? '（時間到自動提交）' : '';
+                    answerTime.textContent = `提交時間: ${submittedTime}${autoSubmittedLabel}`;
+                    if (answer.auto_submitted) {
+                        answerTime.style.color = '#999';
+                    }
                     
                     contentDiv.appendChild(answerText);
                     contentDiv.appendChild(answerTime);
@@ -1587,6 +1621,15 @@
             }
         });
         
+        // 監聽使用者刪除事件
+        socket.on('user_deleted', (data) => {
+            if (data.activity_id === activityId) {
+                // 重新載入活動、表格和參與者列表
+                loadActivity();
+                loadParticipants();
+            }
+        });
+        
         // 監聽活動狀態更新
         socket.on('activity_updated', (data) => {
             if (data.activity_id === activityId) {
@@ -1674,6 +1717,91 @@
                     loadQuestionsCards(currentActivity ? currentActivity.current_question_id : null);
                 });
         });
+        
+        // 載入參與者列表
+        function loadParticipants() {
+            fetch(`/api/activities/${activityId}`)
+                .then(res => res.json())
+                .then(activity => {
+                    const participantsList = document.getElementById('participantsList');
+                    const users = activity.users || [];
+                    
+                    if (users.length === 0) {
+                        participantsList.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">尚無參與者</div>';
+                        return;
+                    }
+                    
+                    // 按小組分組
+                    const usersByGroup = {};
+                    users.forEach(user => {
+                        const group = user.group_name || '未分組';
+                        if (!usersByGroup[group]) {
+                            usersByGroup[group] = [];
+                        }
+                        usersByGroup[group].push(user);
+                    });
+                    
+                    let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">';
+                    
+                    Object.keys(usersByGroup).sort().forEach(group => {
+                        html += `
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #667eea;">
+                                <h4 style="margin-bottom: 10px; color: #667eea;">${group}</h4>
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                        `;
+                        
+                        usersByGroup[group].forEach(user => {
+                            html += `
+                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: white; border-radius: 4px;">
+                                    <span>${user.name}</span>
+                                    <button class="danger" onclick="deleteUser(${user.id}, '${user.name.replace(/'/g, "\\'")}')" 
+                                            style="padding: 4px 8px; font-size: 11px;">
+                                        🗑️ 刪除
+                                    </button>
+                                </div>
+                            `;
+                        });
+                        
+                        html += '</div></div>';
+                    });
+                    
+                    html += '</div>';
+                    participantsList.innerHTML = html;
+                })
+                .catch(err => {
+                    console.error('載入參與者列表失敗:', err);
+                    document.getElementById('participantsList').innerHTML = '<div style="text-align: center; color: #e74c3c; padding: 20px;">載入失敗</div>';
+                });
+        }
+        
+        // 刪除使用者
+        function deleteUser(userId, userName) {
+            if (!confirm(`確定要刪除使用者「${userName}」嗎？\n此操作將同時刪除該使用者的所有回答紀錄，且無法復原。`)) {
+                return;
+            }
+            
+            fetch(`/api/users/${userId}`, {
+                method: 'DELETE'
+            })
+            .then(res => {
+                if (!res.ok) {
+                    return res.json().then(data => {
+                        throw new Error(data.error || '刪除失敗');
+                    });
+                }
+                return res.json();
+            })
+            .then(() => {
+                // 重新載入活動和參與者列表
+                loadActivity();
+                loadParticipants();
+                console.log('使用者已刪除');
+            })
+            .catch(err => {
+                console.error('刪除使用者失敗:', err);
+                alert('刪除使用者失敗：' + err.message);
+            });
+        }
         
         // 載入活動資料
         loadActivity();

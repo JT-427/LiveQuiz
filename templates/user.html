@@ -329,10 +329,17 @@
         });
         
         // 監聽計時器更新（從管理頁面同步）
+        let lastTimeRemaining = null;
         socket.on('timer_update', (data) => {
             if (data.activity_id === activityId) {
+                lastTimeRemaining = timeRemaining;
                 timeRemaining = data.time_remaining;
                 updateBackgroundFlash();
+                
+                // 如果時間從1變為0，自動提交當前輸入的答案
+                if (lastTimeRemaining === 1 && timeRemaining === 0) {
+                    autoSubmitAnswer();
+                }
             }
         });
         
@@ -418,6 +425,39 @@
                 });
         }
         
+        // 自動提交答案（時間到時）
+        function autoSubmitAnswer() {
+            const answerText = document.getElementById('answerText').value;
+            
+            // 如果有輸入內容，自動提交並標記為自動提交
+            if (answerText.trim()) {
+                fetch('/api/answers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        activity_id: activityId,
+                        question_id: currentQuestion.id,
+                        user_id: userId,
+                        answer_text: answerText,
+                        auto_submitted: true
+                    })
+                })
+                .then(res => {
+                    if (res.ok) {
+                        console.log('答案已自動提交（時間到）');
+                        // 清空輸入框
+                        document.getElementById('answerText').value = '';
+                        // 禁用提交按鈕
+                        document.getElementById('submitBtn').disabled = true;
+                        document.getElementById('submitBtn').textContent = '時間已到（已自動提交）';
+                    }
+                })
+                .catch(err => {
+                    console.error('自動提交答案失敗:', err);
+                });
+            }
+        }
+        
         function submitAnswer() {
             const answerText = document.getElementById('answerText').value;
             if (!answerText.trim()) {
@@ -432,7 +472,8 @@
                     activity_id: activityId,
                     question_id: currentQuestion.id,
                     user_id: userId,
-                    answer_text: answerText
+                    answer_text: answerText,
+                    auto_submitted: false
                 })
             })
             .then(res => {

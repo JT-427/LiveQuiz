@@ -152,9 +152,16 @@ def init_db():
             question_id INTEGER REFERENCES questions(id),
             user_id INTEGER REFERENCES users(id),
             answer_text TEXT,
+            auto_submitted BOOLEAN DEFAULT FALSE,
             submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # 添加 auto_submitted 欄位（如果不存在）- 用於資料庫遷移
+    try:
+        cur.execute('ALTER TABLE answers ADD COLUMN IF NOT EXISTS auto_submitted BOOLEAN DEFAULT FALSE')
+    except:
+        pass
     
     conn.commit()
     cur.close()
@@ -451,6 +458,37 @@ def join_activity():
     socketio.emit('user_joined', {'activity_id': data['activity_id'], 'user_id': user_id})
     return jsonify({'id': user_id}), 201
 
+# API: 刪除使用者
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # 先獲取使用者資訊
+    cur.execute('SELECT activity_id FROM users WHERE id = %s', (user_id,))
+    user = cur.fetchone()
+    if not user:
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+    
+    activity_id = user[0]
+    
+    # 刪除使用者的所有回答
+    cur.execute('DELETE FROM answers WHERE user_id = %s', (user_id,))
+    
+    # 刪除使用者
+    cur.execute('DELETE FROM users WHERE id = %s', (user_id,))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    # 發送 WebSocket 事件通知
+    socketio.emit('user_deleted', {'activity_id': activity_id, 'user_id': user_id})
+    
+    return jsonify({'success': True}), 200
+
 # API: 提交回答
 @app.route('/api/answers', methods=['POST'])
 def submit_answer():
@@ -458,17 +496,17 @@ def submit_answer():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
-    # 檢查題目的回答次數限制
+    # 檢查題目的回答次數限制（不包括自動提交的答案）
     cur.execute('SELECT answer_limit FROM questions WHERE id = %s', (data['question_id'],))
     question = cur.fetchone()
     
     if question and question.get('answer_limit'):
         answer_limit = question['answer_limit']
-        # 檢查該用戶已經回答了幾次
+        # 檢查該用戶已經回答了幾次（不包括自動提交的答案）
         cur.execute('''
             SELECT COUNT(*) as count 
             FROM answers 
-            WHERE question_id = %s AND user_id = %s
+            WHERE question_id = %s AND user_id = %s AND (auto_submitted IS NULL OR auto_submitted = FALSE)
         ''', (data['question_id'], data['user_id']))
         answer_count = cur.fetchone()['count']
         
@@ -481,12 +519,13 @@ def submit_answer():
             }), 400
     
     # 插入新的回答
+    auto_submitted = data.get('auto_submitted', False)
     cur.execute('''
-        INSERT INTO answers (activity_id, question_id, user_id, answer_text)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO answers (activity_id, question_id, user_id, answer_text, auto_submitted)
+        VALUES (%s, %s, %s, %s, %s)
         RETURNING id
     ''', (data['activity_id'], data['question_id'], 
-          data['user_id'], data['answer_text']))
+          data['user_id'], data['answer_text'], auto_submitted))
     answer_id = cur.fetchone()['id']
     conn.commit()
     cur.close()
@@ -517,20 +556,21 @@ def get_activity_stats(activity_id):
     cur.execute('SELECT COUNT(*) as count FROM answers WHERE activity_id = %s', (activity_id,))
     answer_count = cur.fetchone()['count']
     
-    # 橫式長條圖：以每位使用者為單位統計該題回答數量
+    # 橫式長條圖：以每位使用者為單位統計該題回答數量（排除自動提交的答案）
     user_stats = []
     if current_question_id:
         cur.execute('''
             SELECT u.id, u.name, u.group_name, COUNT(a.id) as answer_count
             FROM users u
-            LEFT JOIN answers a ON a.user_id = u.id AND a.question_id = %s AND a.activity_id = %s
+            LEFT JOIN answers a ON a.user_id = u.id AND a.question_id = %s AND a.activity_id = %s 
+                AND (a.auto_submitted IS NULL OR a.auto_submitted = FALSE)
             WHERE u.activity_id = %s
             GROUP BY u.id, u.name, u.group_name
             ORDER BY answer_count DESC, u.name
         ''', (current_question_id, activity_id, activity_id))
         user_stats = [dict(row) for row in cur.fetchall()]
     
-    # 直式長條圖：以小組為單位統計各組回答總量除以各組人數的平均每人答題數
+    # 直式長條圖：以小組為單位統計各組回答總量除以各組人數的平均每人答題數（排除自動提交的答案）
     group_stats = []
     if current_question_id:
         cur.execute('''
@@ -544,7 +584,8 @@ def get_activity_stats(activity_id):
                     ELSE 0
                 END as avg_answers_per_person
             FROM users u
-            LEFT JOIN answers a ON a.user_id = u.id AND a.question_id = %s AND a.activity_id = %s
+            LEFT JOIN answers a ON a.user_id = u.id AND a.question_id = %s AND a.activity_id = %s 
+                AND (a.auto_submitted IS NULL OR a.auto_submitted = FALSE)
             WHERE u.activity_id = %s
             GROUP BY COALESCE(u.group_name, '未分組')
             ORDER BY group_name
