@@ -151,7 +151,14 @@ class SocketClient:
         """連接到 Socket.IO 伺服器"""
         start_time = time.time()
         try:
-            self.sio = socketio.Client(reconnection=False, timeout=timeout)
+            # 設定 headers（針對 ngrok 或其他需要特殊 header 的情況）
+            headers = {}
+            # 如果 URL 包含 ngrok，可能需要設置 bypass 標頭
+            if 'ngrok' in self.server_url.lower():
+                headers['ngrok-skip-browser-warning'] = 'true'
+            
+            # 初始化 Client，不使用 timeout 參數
+            self.sio = socketio.Client(reconnection=False)
             
             # 設定事件處理器
             @self.sio.on('connect')
@@ -204,11 +211,21 @@ class SocketClient:
                 self.result.add_event_received(self.client_id, 'display_update')
                 self.event_queue.put(('display_update', data, time.time()))
             
-            # 連接到伺服器
-            self.sio.connect(self.server_url)
+            # 連接到伺服器（帶上 headers）
+            # 注意：socketio.Client.connect() 可能不支援 wait_timeout 參數
+            # 我們使用簡單的 connect() 然後手動等待
+            try:
+                if headers:
+                    self.sio.connect(self.server_url, headers=headers)
+                else:
+                    self.sio.connect(self.server_url)
+            except Exception as connect_err:
+                # 如果連接時就出錯，直接返回
+                connection_time = time.time() - start_time
+                return (False, connection_time, f"連接失敗: {str(connect_err)[:100]}")
             
             # 等待連接確認
-            connection_timeout = 5
+            connection_timeout = timeout
             check_interval = 0.1
             elapsed = 0
             while not self.connected and elapsed < connection_timeout:
@@ -227,7 +244,11 @@ class SocketClient:
             return (False, connection_time, f"連接錯誤: {str(e)}")
         except Exception as e:
             connection_time = time.time() - start_time
-            return (False, connection_time, f"發生錯誤: {str(e)}")
+            error_msg = str(e)
+            # 截斷過長的錯誤訊息
+            if len(error_msg) > 100:
+                error_msg = error_msg[:100] + "..."
+            return (False, connection_time, f"發生錯誤: {error_msg}")
     
     def emit_event(self, event_name: str, data: Dict = None, wait_response: bool = False, 
                    timeout: float = 5.0) -> Tuple[bool, float]:
